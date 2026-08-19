@@ -1,13 +1,13 @@
-"use client";
+use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/crypto";
 import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle } from "lucide-react";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, role } = useAuth();
@@ -85,7 +85,7 @@ export default function LoginPage() {
         await db.createRequest({
           type: "new_account", user_id: user.id, status: "pending",
           data: { username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas, sub_kelas: user.sub_kelas },
-          admin_notes: "", handled_at: null,
+          created_at: new Date().toISOString(), admin_notes: "", handled_at: null,
         });
         setSuccess("Pendaftaran berhasil! Menunggu persetujuan admin.");
       }
@@ -245,3 +245,16 @@ export default function LoginPage() {
     </div>
   );
 }
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
