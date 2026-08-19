@@ -204,7 +204,7 @@ export default function AdminPanel() {
 
   const handleAppeal = async (appealId: string, action: "approve" | "reject", response: string = "") => {
     try {
-      await db.updateAppeal(appealId, { status: action, admin_response: response, handled_at: new Date().toISOString() });
+      await db.updateAppeal(appealId, { status: action === "approve" ? "approved" : "rejected", admin_response: response, handled_at: new Date().toISOString() });
       const allAppeals = await db.getAppeals();
       const appeal = allAppeals.find((a) => a.id === appealId);
       if (!appeal) return;
