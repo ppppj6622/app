@@ -66,7 +66,7 @@ export default function Dashboard() {
       await db.createRequest({
         type: "password_reset", user_id: user!.id, status: "pending",
         data: { new_password_hash: await hashPassword(newPassword) },
-        created_at: new Date().toISOString(), admin_notes: "", handled_at: null,
+        admin_notes: "", handled_at: null,
       });
       await db.addNotification(user!.id, "Request Ganti Password", "Permintaan ganti password telah dikirim ke admin. Hubungi admin untuk persetujuan.", "warning");
       setRequestMsg("Request ganti password terkirim. Hubungi admin untuk approval.");
@@ -84,7 +84,7 @@ export default function Dashboard() {
       await db.createRequest({
         type: "username_change", user_id: user!.id, status: "pending",
         data: { new_username: newUsername },
-        created_at: new Date().toISOString(), admin_notes: "", handled_at: null,
+        admin_notes: "", handled_at: null,
       });
       await db.addNotification(user!.id, "Request Ganti Username", `Permintaan ganti username ke "${newUsername}" telah dikirim ke admin.`, "warning");
       setRequestMsg("Request ganti username terkirim. Hubungi admin untuk approval.");
