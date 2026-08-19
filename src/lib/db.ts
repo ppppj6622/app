@@ -244,9 +244,9 @@ class AppDB {
     return data || { userId, records: [] };
   }
 
-  async addAbsensiRecord(userId: string, record: AbsensiRecord): Promise<void> {
+  async addAbsensiRecord(userId: string, record: Omit<AbsensiRecord, "created_at">): Promise<void> {
     const data = await this.getAbsensi(userId);
-    data.records.push(record);
+    data.records.push({ ...record, created_at: new Date().toISOString() } as AbsensiRecord);
     await this.putOne("absensi", data);
   }
 
