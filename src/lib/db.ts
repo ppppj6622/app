@@ -263,9 +263,9 @@ class AppDB {
     return this.getOne("requests", id);
   }
 
-  async createRequest(item: Omit<RequestItem, "id">): Promise<RequestItem> {
+  async createRequest(item: Omit<RequestItem, "id" | "created_at">): Promise<RequestItem> {
     const id = generateId("req");
-    const req = { ...item, id };
+    const req = { ...item, id, created_at: new Date().toISOString() };
     await this.putOne("requests", req);
     return req as RequestItem;
   }
