@@ -85,7 +85,7 @@ export default function LoginPage() {
         await db.createRequest({
           type: "new_account", user_id: user.id, status: "pending",
           data: { username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas, sub_kelas: user.sub_kelas },
-          created_at: new Date().toISOString(), admin_notes: "", handled_at: null,
+          admin_notes: "", handled_at: null,
         });
         setSuccess("Pendaftaran berhasil! Menunggu persetujuan admin.");
       }
