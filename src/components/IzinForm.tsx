@@ -47,14 +47,12 @@ export default function IzinForm({ userId, onSuccess }: { userId: string; onSucc
         jenis,
         keterangan,
         week: settings.current_week,
-        created_at: new Date().toISOString(),
       });
       await db.createRequest({
         type: "izin",
         user_id: userId,
         status: "pending",
         data: { jenis, keterangan, tanggal, foto },
-        created_at: new Date().toISOString(),
         admin_notes: "",
         handled_at: null,
       });
