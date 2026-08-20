@@ -17,11 +17,16 @@ function LoginContent() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Read search params ONCE on mount to avoid infinite loops
   useEffect(() => {
-    if (searchParams.get("tab") === "register") setActiveTab("register");
-    if (searchParams.get("admin") === "1") setActiveTab("admin");
-  }, [searchParams]);
+    const tab = searchParams.get("tab");
+    const admin = searchParams.get("admin");
+    if (tab === "register") setActiveTab("register");
+    if (admin === "1") setActiveTab("admin");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Redirect if already logged in (only when auth check is done)
   useEffect(() => {
     if (!isLoading && role) {
       router.push(role === "admin" ? "/admin/" : "/dashboard/");
@@ -36,9 +41,11 @@ function LoginContent() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setLoading(true);
     setError("");
     try {
+      console.log("[LOGIN] Starting login for", loginData.username);
       await db.init();
       const user = await db.getUserByUsername(loginData.username);
       if (!user) throw new Error("Username atau password salah");
@@ -61,9 +68,11 @@ function LoginContent() {
         id: user.id, username: user.username, nama_lengkap: user.nama_lengkap,
         kelas: user.kelas, sub_kelas: user.sub_kelas, role: user.role,
       }, user.role);
+      console.log("[LOGIN] Success, redirecting...");
       router.push(user.role === "admin" ? "/admin/" : "/dashboard/");
     } catch (err: any) {
-      setError(err.message);
+      console.error("[LOGIN] Error:", err);
+      setError(err?.message || "Terjadi kesalahan saat login");
     } finally {
       setLoading(false);
     }
@@ -71,19 +80,22 @@ function LoginContent() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setLoading(true);
     setError("");
     setSuccess("");
     try {
+      console.log("[REGISTER] Starting registration for", registerData.username);
       await db.init();
       const existing = await db.getUserByUsername(registerData.username);
       if (existing) throw new Error("Username sudah digunakan");
       const user = await db.createUser(registerData);
+      console.log("[REGISTER] User created:", user.id);
       const settings = await db.getSettings();
       if (settings.auto_accept_new_accounts) {
         await db.updateUser(user.id, { status: "active" });
         await db.addNotification(user.id, "Akun Diterima", "Akun Anda otomatis diterima.", "success");
-        setSuccess("Pendaftaran berhasil! Akun langsung aktif.");
+        setSuccess("Pendaftaran berhasil! Akun langsung aktif. Silakan login.");
       } else {
         await db.createRequest({
           type: "new_account", user_id: user.id, status: "pending",
@@ -93,8 +105,10 @@ function LoginContent() {
         setSuccess("Pendaftaran berhasil! Menunggu persetujuan admin.");
       }
       setRegisterData({ username: "", password: "", nama_lengkap: "", kelas: "teknik", sub_kelas: "" });
+      console.log("[REGISTER] Done");
     } catch (err: any) {
-      setError(err.message);
+      console.error("[REGISTER] Error:", err);
+      setError(err?.message || "Terjadi kesalahan saat mendaftar");
     } finally {
       setLoading(false);
     }
@@ -102,9 +116,11 @@ function LoginContent() {
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setLoading(true);
     setError("");
     try {
+      console.log("[ADMIN] Starting admin login");
       await db.init();
       const user = await db.getUserByUsername(adminData.username);
       if (!user || user.role !== "admin") throw new Error("Invalid credentials");
@@ -117,9 +133,11 @@ function LoginContent() {
         id: user.id, username: user.username, nama_lengkap: user.nama_lengkap,
         kelas: user.kelas, role: user.role,
       }, "admin");
+      console.log("[ADMIN] Success");
       router.push("/admin/");
     } catch (err: any) {
-      setError(err.message);
+      console.error("[ADMIN] Error:", err);
+      setError(err?.message || "Terjadi kesalahan saat login admin");
     } finally {
       setLoading(false);
     }
@@ -140,9 +158,9 @@ function LoginContent() {
 
           {activeTab !== "admin" && (
             <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
-              <button onClick={() => { setActiveTab("login"); setError(""); setSuccess(""); }}
+              <button type="button" onClick={() => { setActiveTab("login"); setError(""); setSuccess(""); }}
                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "login" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Masuk</button>
-              <button onClick={() => { setActiveTab("register"); setError(""); setSuccess(""); }}
+              <button type="button" onClick={() => { setActiveTab("register"); setError(""); setSuccess(""); }}
                 className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "register" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Daftar</button>
             </div>
           )}

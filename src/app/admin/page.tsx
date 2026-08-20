@@ -26,6 +26,7 @@ export default function AdminPanel() {
   const [settings, setSettings] = useState<any>(null);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
+  const [scanError, setScanError] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedKelas, setSelectedKelas] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -84,7 +85,7 @@ export default function AdminPanel() {
       }
       setAbsensiToday(absensiData);
     } catch (err) {
-      console.error(err);
+      console.error("[ADMIN] loadAll error:", err);
     } finally {
       setLoading(false);
     }
@@ -93,28 +94,36 @@ export default function AdminPanel() {
   const startScan = async () => {
     setScanning(true);
     setScanResult(null);
+    setScanError("");
     try {
+      console.log("[SCAN] Starting QR scanner...");
+      if (typeof navigator === "undefined" || !navigator.mediaDevices) {
+        throw new Error("Browser tidak mendukung akses kamera. Pastikan akses HTTPS/localhost.");
+      }
       const scanner = new Html5Qrcode("qr-reader");
       qrRef.current = scanner;
       await scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: { width: 250, height: 250 } },
         async (decodedText) => {
+          console.log("[SCAN] QR detected:", decodedText);
           await handleScan(decodedText);
           await scanner.stop();
           setScanning(false);
         },
-        () => {}
+        (err) => {}
       );
-    } catch (err) {
-      console.error(err);
+      console.log("[SCAN] Camera started");
+    } catch (err: any) {
+      console.error("[SCAN] Error:", err);
+      setScanError(err?.message || "Gagal memulai kamera. Cek permission browser.");
       setScanning(false);
     }
   };
 
   const stopScan = async () => {
     if (qrRef.current) {
-      await qrRef.current.stop();
+      try { await qrRef.current.stop(); } catch (e) {}
       qrRef.current = null;
     }
     setScanning(false);
@@ -122,6 +131,7 @@ export default function AdminPanel() {
 
   const handleScan = async (qrData: string) => {
     try {
+      console.log("[SCAN] Verifying QR...");
       const result = await verifyQR(qrData, async (id) => {
         const u = await db.getUserById(id);
         return u?.qr_secret || null;
@@ -150,7 +160,8 @@ export default function AdminPanel() {
       setScanResult({ user: scannedUser, status: "success" });
       loadAll();
     } catch (err: any) {
-      setScanResult({ error: err.message });
+      console.error("[SCAN] handleScan error:", err);
+      setScanResult({ error: err?.message || "Error verifikasi QR" });
     }
   };
 
@@ -200,8 +211,9 @@ export default function AdminPanel() {
         }
       }
       loadAll();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("[ADMIN] handleRequest error:", err);
+      alert("Gagal memproses request: " + err.message);
     }
   };
 
@@ -219,8 +231,9 @@ export default function AdminPanel() {
         await db.addNotification(appeal.user_id, "Banding Ditolak", `Banding Anda ditolak. ${response}.`, "error");
       }
       loadAll();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error("[ADMIN] handleAppeal error:", err);
+      alert("Gagal memproses banding: " + err.message);
     }
   };
 
@@ -262,7 +275,7 @@ export default function AdminPanel() {
           <div className="flex items-center gap-3">
             {user && <NotificationBell userId={user.id} />}
             <span className="text-sm text-gray-500 hidden md:inline">{user?.nama_lengkap}</span>
-            <button onClick={logout} className="p-2 hover:bg-red-50 text-gray-400 hover:text-danger rounded-lg"><LogOut className="w-4 h-4" /></button>
+            <button type="button" onClick={logout} className="p-2 hover:bg-red-50 text-gray-400 hover:text-danger rounded-lg"><LogOut className="w-4 h-4" /></button>
           </div>
         </div>
       </header>
@@ -277,7 +290,7 @@ export default function AdminPanel() {
             { id: "files", label: "Files & DB", icon: FolderOpen },
             { id: "appeals", label: "Banding", icon: MessageSquare },
           ].map((tab) => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id as any)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab.id ? "bg-primary text-white" : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
               }`}>
@@ -308,7 +321,7 @@ export default function AdminPanel() {
                 <h3 className="text-lg font-semibold mb-4">Auto Accept</h3>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">{settings?.auto_accept_new_accounts ? "Aktif" : "Nonaktif"}</span>
-                  <button onClick={toggleAutoAccept} className={`px-4 py-2 rounded-lg font-medium ${settings?.auto_accept_new_accounts ? "bg-green-500 text-white" : "bg-gray-200 text-gray-700"}`}>
+                  <button type="button" onClick={toggleAutoAccept} className={`px-4 py-2 rounded-lg font-medium ${settings?.auto_accept_new_accounts ? "bg-green-500 text-white" : "bg-gray-200 text-gray-700"}`}>
                     {settings?.auto_accept_new_accounts ? "Matikan" : "Nyalakan"}
                   </button>
                 </div>
@@ -336,13 +349,18 @@ export default function AdminPanel() {
               </div>
               <div className="flex flex-col items-center mb-6">
                 {!scanning ? (
-                  <button onClick={startScan} className="btn-primary flex items-center gap-2 text-lg px-8 py-4">
+                  <button type="button" onClick={startScan} className="btn-primary flex items-center gap-2 text-lg px-8 py-4">
                     <ScanLine className="w-5 h-5" />Aktifkan Kamera & Scan QR
                   </button>
                 ) : (
                   <div className="w-full max-w-md">
                     <div id="qr-reader" className="rounded-xl overflow-hidden border-2 border-primary"></div>
-                    <button onClick={stopScan} className="w-full mt-2 btn-danger">Stop Kamera</button>
+                    <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger">Stop Kamera</button>
+                  </div>
+                )}
+                {scanError && (
+                  <div className="mt-4 p-4 rounded-lg bg-red-50 text-red-700 text-sm max-w-md text-center">
+                    <AlertCircle className="w-4 h-4 inline mr-1" />{scanError}
                   </div>
                 )}
                 {scanResult && (
@@ -397,8 +415,8 @@ export default function AdminPanel() {
                       </div>
                       {req.status === "pending" && (
                         <div className="flex gap-2">
-                          <button onClick={() => handleRequest(req.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
-                          <button onClick={() => { const reason = prompt("Alasan penolakan:"); if (reason) handleRequest(req.id, "reject", reason); }} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => handleRequest(req.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => { const reason = prompt("Alasan penolakan:"); if (reason) handleRequest(req.id, "reject", reason); }} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
                         </div>
                       )}
                     </div>
@@ -456,8 +474,8 @@ export default function AdminPanel() {
                       <p className="text-xs text-gray-500">{a.request_id}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleAppeal(a.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
-                      <button onClick={() => handleAppeal(a.id, "reject", "Ditolak admin")} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => handleAppeal(a.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => handleAppeal(a.id, "reject", "Ditolak admin")} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
                     </div>
                   </div>
                 ))}
