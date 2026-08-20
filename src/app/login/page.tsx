@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { verifyPassword } from "@/lib/crypto";
+import { verifyPassword, hashPassword } from "@/lib/crypto";
 import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle, KeyRound } from "lucide-react";
 
 function LoginContent() {

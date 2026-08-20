@@ -1,8 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v5 — Major Feature Update
-# Features: forgot password, admin self-change, download CSV/JSON,
-# profile modal, 1x/week attendance, class-specific QR scan
+# Absensi App Auto-Fix v5.1 — Build Fix (hashPassword import)
 # ============================================================
 set -e
 
@@ -11,7 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v5 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v5.1 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -23,9 +21,20 @@ cd "$PROJECT_ROOT"
 echo -e "${GREEN}Project root: $(pwd)${NC}"
 
 mkdir -p .backup-fix-absensi-v5
-for f in tailwind.config.js src/lib/db.ts src/lib/auth.tsx src/app/layout.tsx src/app/login/page.tsx src/app/admin/page.tsx src/app/dashboard/page.tsx src/app/globals.css src/components/IzinForm.tsx src/components/FileExplorer.tsx src/components/MateriExplorer.tsx src/components/QRDisplay.tsx src/components/NotificationBell.tsx src/components/HeatMap.tsx; do
-  cp "$f" .backup-fix-absensi-v5/ 2>/dev/null || true
-done
+cp tailwind.config.js .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/lib/db.ts .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/lib/auth.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/app/layout.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/app/login/page.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/app/admin/page.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/app/dashboard/page.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/app/globals.css .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/IzinForm.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/FileExplorer.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/MateriExplorer.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/QRDisplay.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/NotificationBell.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
+cp src/components/HeatMap.tsx .backup-fix-absensi-v5/ 2>/dev/null || true
 echo -e "${GREEN}Backup OK${NC}"
 
 mkdir -p "$(dirname 'tailwind.config.js')"
@@ -755,7 +764,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { verifyPassword } from "@/lib/crypto";
+import { verifyPassword, hashPassword } from "@/lib/crypto";
 import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle, KeyRound } from "lucide-react";
 
 function LoginContent() {
@@ -2215,7 +2224,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "feat v5: forgot password, admin settings, CSV export, profile modal, 1x/week scan"
+        git commit -m "fix v5.1: hashPassword import in login page"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2224,15 +2233,4 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v5 SELESAI ===${NC}"
-echo ""
-echo "Fitur baru:"
-echo "  • Login: tombol 'Lupa Password?' → request ganti password ke admin"
-echo "  • Admin: lihat password hash lama vs baru sebelum approve"
-echo "  • Admin: ganti username/password sendiri (icon gear di header)"
-echo "  • Admin: download CSV/JSON log kehadiran (pisah teknik/non-teknik)"
-echo "  • Dashboard: tombol profil (avatar) → modal ubah nama/username/request pw"
-echo "  • Daftar: hapus opsi kelas A/B, cukup teknik/non-teknik/keduanya"
-echo "  • Scan QR: 1x per minggu per kelas, user keduanya harus 2x"
-echo "  • Scan QR: admin pilih kelas (teknik/non-teknik) sebelum scan"
-echo ""
+echo -e "${GREEN}=== FIX v5.1 SELESAI ===${NC}"
