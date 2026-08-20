@@ -1,6 +1,7 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v3.1 — Build Fix (Geist font → Inter)
+# Absensi App Auto-Fix v4 — Camera Permission Pre-Check
+# Fixes: explicit getUserMedia permission request, clear status banners
 # ============================================================
 set -e
 
@@ -9,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v3.1 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v4 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -20,19 +21,19 @@ fi
 cd "$PROJECT_ROOT"
 echo -e "${GREEN}Project root: $(pwd)${NC}"
 
-mkdir -p .backup-fix-absensi-v3
-cp tailwind.config.js .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/lib/db.ts .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/lib/auth.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/app/layout.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/app/login/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/app/admin/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/app/dashboard/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/components/IzinForm.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/components/FileExplorer.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/components/MateriExplorer.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/components/QRDisplay.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
-cp src/components/NotificationBell.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+mkdir -p .backup-fix-absensi-v4
+cp tailwind.config.js .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/lib/db.ts .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/lib/auth.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/app/layout.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/app/login/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/app/admin/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/app/dashboard/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/components/IzinForm.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/components/FileExplorer.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/components/MateriExplorer.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/components/QRDisplay.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+cp src/components/NotificationBell.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
 echo -e "${GREEN}Backup OK${NC}"
 
 mkdir -p "$(dirname 'tailwind.config.js')"
@@ -75,37 +76,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="id">
       <body className={`${inter.className} antialiased bg-gray-50`}>
-        <AuthProvider>
-          <CryptoCheck />
-          {children}
-        </AuthProvider>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );
-}
-
-function CryptoCheck() {
-  if (typeof window !== "undefined") {
-    if (!window.crypto?.subtle) {
-      return (
-        <div className="fixed inset-0 z-[9999] bg-red-50 flex items-center justify-center p-4">
-          <div className="max-w-md text-center">
-            <h2 className="text-xl font-bold text-red-700 mb-2">Browser Tidak Didukung</h2>
-            <p className="text-red-600 mb-4">
-              Browser Anda tidak mendukung Web Crypto API. Ini biasanya terjadi kalau:
-            </p>
-            <ul className="text-left text-sm text-red-600 space-y-1 mb-4">
-              <li>• Akses via IP lokal (http://192.168.x.x) — gunakan <b>http://localhost:3000</b></li>
-              <li>• Browser versi lama — update Chrome/Firefox/Safari</li>
-              <li>• Mode Private/Incognito dengan pembatasan ketat</li>
-            </ul>
-            <p className="text-xs text-red-400">Silakan akses aplikasi via localhost atau HTTPS.</p>
-          </div>
-        </div>
-      );
-    }
-  }
-  return null;
 }
 
 EOF_FIX
@@ -126,8 +100,11 @@ import NotificationBell from "@/components/NotificationBell";
 import {
   LogOut, Users, QrCode, CheckCircle, XCircle, Clock, AlertCircle,
   BarChart3, Settings, Bell, ScanLine, Calendar, MessageSquare,
-  UserCheck, UserX, FolderOpen, ChevronDown, ChevronUp, Shield
+  UserCheck, UserX, FolderOpen, ChevronDown, ChevronUp, Shield,
+  Upload, Camera, CameraOff, Lock, Wifi
 } from "lucide-react";
+
+type CameraStatus = "idle" | "checking" | "scanning" | "insecure" | "unsupported" | "denied" | "notfound" | "inuse" | "error";
 
 export default function AdminPanel() {
   const router = useRouter();
@@ -139,19 +116,80 @@ export default function AdminPanel() {
   const [users, setUsers] = useState<any[]>([]);
   const [appeals, setAppeals] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>(null);
-  const [scanning, setScanning] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
   const [scanResult, setScanResult] = useState<any>(null);
   const [scanError, setScanError] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedKelas, setSelectedKelas] = useState("all");
   const [loading, setLoading] = useState(true);
-  const qrRef = useRef<Html5Qrcode | null>(null);
+
+  const qrContainerRef = useRef<HTMLDivElement>(null);
+  const fileScannerRef = useRef<HTMLDivElement>(null);
+  const scannerInstanceRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
     if (!user) { router.push("/login/?admin=1"); return; }
     if (user.role !== "admin") { router.push("/dashboard/"); return; }
     loadAll();
   }, [user]);
+
+  // Scanner lifecycle: start/stop based on cameraStatus === "scanning"
+  useEffect(() => {
+    if (cameraStatus !== "scanning") {
+      if (scannerInstanceRef.current) {
+        scannerInstanceRef.current.stop().catch(() => {});
+        scannerInstanceRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+    let scanner: Html5Qrcode | null = null;
+
+    const initScanner = async () => {
+      await new Promise((r) => setTimeout(r, 300));
+      if (cancelled) return;
+
+      if (!qrContainerRef.current) {
+        setCameraStatus("error");
+        setScanError("QR container tidak ditemukan di DOM.");
+        return;
+      }
+
+      try {
+        scanner = new Html5Qrcode(qrContainerRef.current);
+        scannerInstanceRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          async (decodedText) => {
+            if (cancelled) return;
+            console.log("[SCAN] QR detected:", decodedText);
+            try { if (scanner) await scanner.stop(); } catch (e) {}
+            scannerInstanceRef.current = null;
+            setCameraStatus("idle");
+            await handleScan(decodedText);
+          },
+          () => {}
+        );
+        console.log("[SCAN] Camera started");
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error("[SCAN] Start error:", err);
+          setCameraStatus("error");
+          setScanError(err?.message || "Gagal memulai scanner QR.");
+        }
+      }
+    };
+
+    initScanner();
+
+    return () => {
+      cancelled = true;
+      if (scanner) scanner.stop().catch(() => {});
+    };
+  }, [cameraStatus]);
 
   const loadAll = async () => {
     await db.init();
@@ -206,66 +244,89 @@ export default function AdminPanel() {
     }
   };
 
-  const startScan = async () => {
-    setScanning(true);
+  // ========== CAMERA PRE-CHECK ==========
+  const checkAndStartCamera = async () => {
     setScanResult(null);
     setScanError("");
+    setCameraStatus("checking");
+
+    // 1. Check secure context
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      setCameraStatus("insecure");
+      return;
+    }
+
+    // 2. Check API support
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraStatus("unsupported");
+      return;
+    }
+
+    // 3. Try getUserMedia explicitly (this triggers the permission popup)
     try {
-      console.log("[SCAN] Starting QR scanner...");
-      if (typeof navigator === "undefined" || !navigator.mediaDevices) {
-        throw new Error("Browser tidak mendukung akses kamera. Pastikan akses HTTPS/localhost.");
-      }
-      const scanner = new Html5Qrcode("qr-reader");
-      qrRef.current = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        async (decodedText) => {
-          console.log("[SCAN] QR detected:", decodedText);
-          await handleScan(decodedText);
-          await scanner.stop();
-          setScanning(false);
-        },
-        (err) => {}
-      );
-      console.log("[SCAN] Camera started");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      // Permission granted! Stop the test stream immediately
+      stream.getTracks().forEach((track) => track.stop());
+      console.log("[CAMERA] Permission granted by user");
+      setCameraStatus("scanning");
     } catch (err: any) {
-      console.error("[SCAN] Error:", err);
-      setScanError(err?.message || "Gagal memulai kamera. Cek permission browser.");
-      setScanning(false);
+      console.error("[CAMERA] getUserMedia error:", err.name, err.message);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setCameraStatus("denied");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        setCameraStatus("notfound");
+      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        setCameraStatus("inuse");
+      } else {
+        setCameraStatus("error");
+        setScanError(err?.message || "Gagal mengakses kamera.");
+      }
     }
   };
 
   const stopScan = async () => {
-    if (qrRef.current) {
-      try { await qrRef.current.stop(); } catch (e) {}
-      qrRef.current = null;
+    if (scannerInstanceRef.current) {
+      try { await scannerInstanceRef.current.stop(); } catch (e) {}
+      scannerInstanceRef.current = null;
     }
-    setScanning(false);
+    setCameraStatus("idle");
+  };
+
+  // Fallback: scan QR from uploaded image
+  const handleFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanResult(null);
+    setScanError("");
+    try {
+      const tmpId = "tmp-qr-file-" + Date.now();
+      const tmpDiv = document.createElement("div");
+      tmpDiv.id = tmpId;
+      tmpDiv.style.display = "none";
+      document.body.appendChild(tmpDiv);
+      const scanner = new Html5Qrcode(tmpId);
+      const decodedText = await scanner.scanFile(file, true);
+      await scanner.clear();
+      document.body.removeChild(tmpDiv);
+      await handleScan(decodedText);
+    } catch (err: any) {
+      setScanError("Gagal scan file QR: " + (err?.message || "Format tidak valid / QR tidak terbaca"));
+    }
+    e.target.value = "";
   };
 
   const handleScan = async (qrData: string) => {
     try {
-      console.log("[SCAN] Verifying QR...");
       const result = await verifyQR(qrData, async (id) => {
         const u = await db.getUserById(id);
         return u?.qr_secret || null;
       });
-      if (!result.valid) {
-        setScanResult({ error: result.reason });
-        return;
-      }
+      if (!result.valid) { setScanResult({ error: result.reason }); return; }
       const scannedUser = await db.getUserById(result.userId!);
-      if (!scannedUser) {
-        setScanResult({ error: "User tidak ditemukan" });
-        return;
-      }
+      if (!scannedUser) { setScanResult({ error: "User tidak ditemukan" }); return; }
       const absensi = await db.getAbsensi(scannedUser.id);
       const already = absensi.records.find((r) => r.date === selectedDate && r.status === "hadir");
-      if (already) {
-        setScanResult({ user: scannedUser, status: "already_scanned" });
-        return;
-      }
+      if (already) { setScanResult({ user: scannedUser, status: "already_scanned" }); return; }
       const appSettings = await db.getSettings();
       await db.addAbsensiRecord(scannedUser.id, {
         date: selectedDate, status: "hadir", type: "qr", week: appSettings.current_week,
@@ -275,7 +336,6 @@ export default function AdminPanel() {
       setScanResult({ user: scannedUser, status: "success" });
       loadAll();
     } catch (err: any) {
-      console.error("[SCAN] handleScan error:", err);
       setScanResult({ error: err?.message || "Error verifikasi QR" });
     }
   };
@@ -285,7 +345,6 @@ export default function AdminPanel() {
       const req = await db.getRequest(reqId);
       if (!req) return;
       const userId = req.user_id;
-
       if (action === "approve") {
         await db.updateRequest(reqId, { status: "approved", admin_notes: notes, handled_at: new Date().toISOString() });
         if (req.type === "new_account") {
@@ -301,8 +360,7 @@ export default function AdminPanel() {
           const absen = await db.getAbsensi(userId);
           const rec = absen.records.find((r) => r.date === req.data.tanggal && r.status.startsWith("pending_"));
           if (rec) {
-            rec.status = req.data.jenis;
-            rec.approved_at = new Date().toISOString();
+            rec.status = req.data.jenis; rec.approved_at = new Date().toISOString();
             await db.saveAbsensi(absen);
             await db.addNotification(userId, "Izin Diterima", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} telah disetujui.`, "success");
           } else {
@@ -314,12 +372,8 @@ export default function AdminPanel() {
         if (req.type === "izin") {
           const absen = await db.getAbsensi(userId);
           const rec = absen.records.find((r) => r.date === req.data.tanggal && r.status.startsWith("pending_"));
-          if (rec) {
-            rec.status = "alpha";
-            rec.rejected_at = new Date().toISOString();
-            await db.saveAbsensi(absen);
-          }
-          await db.addNotification(userId, "Izin Ditolak", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} DITOLAK. Alasan: ${notes}. Anda dapat mengajukan banding.`, "error");
+          if (rec) { rec.status = "alpha"; rec.rejected_at = new Date().toISOString(); await db.saveAbsensi(absen); }
+          await db.addNotification(userId, "Izin Ditolak", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} DITOLAK. Alasan: ${notes}.`, "error");
         } else {
           if (req.type === "new_account") await db.updateUser(userId, { status: "rejected" });
           await db.addNotification(userId, "Request Ditolak", `Permintaan ${req.type} Anda ditolak. Alasan: ${notes}.`, "error");
@@ -327,7 +381,6 @@ export default function AdminPanel() {
       }
       loadAll();
     } catch (err: any) {
-      console.error("[ADMIN] handleRequest error:", err);
       alert("Gagal memproses request: " + err.message);
     }
   };
@@ -347,29 +400,19 @@ export default function AdminPanel() {
       }
       loadAll();
     } catch (err: any) {
-      console.error("[ADMIN] handleAppeal error:", err);
       alert("Gagal memproses banding: " + err.message);
     }
   };
 
   const toggleAutoAccept = async () => {
     if (!settings) return;
-    try {
-      await db.updateSettings({ auto_accept_new_accounts: !settings.auto_accept_new_accounts });
-      loadAll();
-    } catch (err: any) {
-      alert("Gagal mengubah setting: " + err.message);
-    }
+    try { await db.updateSettings({ auto_accept_new_accounts: !settings.auto_accept_new_accounts }); loadAll(); }
+    catch (err: any) { alert("Gagal mengubah setting: " + err.message); }
   };
 
   const updateUserStatus = async (userId: string, status: string) => {
-    try {
-      await db.updateUser(userId, { status: status as any });
-      await db.addNotification(userId, "Status Akun", `Status akun Anda diubah menjadi ${status} oleh admin.`, "warning");
-      loadAll();
-    } catch (err: any) {
-      alert("Gagal update status: " + err.message);
-    }
+    try { await db.updateUser(userId, { status: status as any }); await db.addNotification(userId, "Status Akun", `Status akun Anda diubah menjadi ${status} oleh admin.`, "warning"); loadAll(); }
+    catch (err: any) { alert("Gagal update status: " + err.message); }
   };
 
   if (loading) {
@@ -379,6 +422,71 @@ export default function AdminPanel() {
       </div>
     );
   }
+
+  // Camera status banner messages
+  const cameraBanner = () => {
+    switch (cameraStatus) {
+      case "insecure":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm max-w-lg text-center">
+            <Lock className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Kamera Tidak Tersedia</p>
+            <p className="mt-1">Browser memblokir kamera karena akses tidak aman (bukan HTTPS/localhost).</p>
+            <p className="mt-2 text-xs">
+              <b>Solusi:</b> Akses via <code className="bg-orange-100 px-1 rounded">http://localhost:3000</code> (satu device) atau setup HTTPS.
+              <br />Atau gunakan tombol <b>"Upload Gambar QR"</b> di bawah.
+            </p>
+          </div>
+        );
+      case "unsupported":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
+            <AlertCircle className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Browser Tidak Mendukung Kamera</p>
+            <p className="mt-1">Gunakan Chrome/Firefox/Safari terbaru.</p>
+          </div>
+        );
+      case "denied":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
+            <AlertCircle className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Permission Kamera Ditolak</p>
+            <p className="mt-1">Anda pernah menolak akses kamera. Buka pengaturan browser:</p>
+            <p className="mt-2 text-xs">
+              Chrome: Settings → Privacy → Site Settings → Camera → Allow this site<br />
+              Safari: Settings → Safari → Camera → Allow<br />
+              Atau gunakan <b>"Upload Gambar QR"</b>.
+            </p>
+          </div>
+        );
+      case "notfound":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center">
+            <AlertCircle className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Kamera Tidak Ditemukan</p>
+            <p className="mt-1">Pastikan device memiliki kamera dan tidak sedang dipakai aplikasi lain.</p>
+          </div>
+        );
+      case "inuse":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center">
+            <AlertCircle className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Kamera Sedang Digunakan</p>
+            <p className="mt-1">Kamera sedang dipakai aplikasi lain (Zoom, Meet, dll). Tutup aplikasi tersebut lalu coba lagi.</p>
+          </div>
+        );
+      case "error":
+        return (
+          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
+            <AlertCircle className="w-5 h-5 inline mb-1" />
+            <p className="font-semibold">Error Kamera</p>
+            <p className="mt-1">{scanError || "Gagal memulai kamera."}</p>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -462,22 +570,38 @@ export default function AdminPanel() {
                   </select>
                 </div>
               </div>
-              <div className="flex flex-col items-center mb-6">
-                {!scanning ? (
-                  <button type="button" onClick={startScan} className="btn-primary flex items-center gap-2 text-lg px-8 py-4">
-                    <ScanLine className="w-5 h-5" />Aktifkan Kamera & Scan QR
-                  </button>
-                ) : (
+
+              <div className="flex flex-col items-center mb-6 space-y-4">
+                {cameraStatus === "scanning" ? (
                   <div className="w-full max-w-md">
-                    <div id="qr-reader" className="rounded-xl overflow-hidden border-2 border-primary"></div>
-                    <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger">Stop Kamera</button>
+                    <div ref={qrContainerRef} className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
+                      <p className="text-white text-sm">Memuat kamera...</p>
+                    </div>
+                    <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2">
+                      <CameraOff className="w-4 h-4" />Stop Kamera
+                    </button>
                   </div>
+                ) : (
+                  <>
+                    <button type="button" onClick={checkAndStartCamera} disabled={cameraStatus === "checking"} className="btn-primary flex items-center gap-2 text-lg px-8 py-4 disabled:opacity-50">
+                      {cameraStatus === "checking" ? (
+                        <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Memeriksa kamera...</>
+                      ) : (
+                        <><Camera className="w-5 h-5" />Aktifkan Kamera & Scan QR</>
+                      )}
+                    </button>
+                    <div className="text-center">
+                      <p className="text-sm text-gray-400 mb-2">— atau —</p>
+                      <label className="btn-secondary flex items-center gap-2 cursor-pointer">
+                        <Upload className="w-4 h-4" />Upload Gambar QR
+                        <input type="file" accept="image/*" className="hidden" onChange={handleFileScan} />
+                      </label>
+                    </div>
+                  </>
                 )}
-                {scanError && (
-                  <div className="mt-4 p-4 rounded-lg bg-red-50 text-red-700 text-sm max-w-md text-center">
-                    <AlertCircle className="w-4 h-4 inline mr-1" />{scanError}
-                  </div>
-                )}
+
+                {cameraBanner()}
+
                 {scanResult && (
                   <div className={`mt-4 p-4 rounded-lg ${scanResult.error ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
                     {scanResult.error ? `Error: ${scanResult.error}` : `✓ ${scanResult.user.nama_lengkap} (${scanResult.user.kelas}) - ${scanResult.status === "already_scanned" ? "Sudah absen" : "Berhasil"}`}
@@ -2435,7 +2559,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v3.1: QR scan camera + build fix (Geist→Inter font)"
+        git commit -m "fix v4: camera permission pre-check + explicit getUserMedia"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2444,11 +2568,15 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v3.1 SELESAI ===${NC}"
+echo -e "${GREEN}=== FIX v4 SELESAI ===${NC}"
 echo ""
-echo "Perubahan:"
-echo "  • layout.tsx: font Geist/Geist_Mono → Inter (fix build Next.js 13.5.6)"
-echo "  • QR Scanner: useEffect + useRef DOM timing"
-echo "  • QR Scanner: secure context + mediaDevices check"
-echo "  • QR Scanner: fallback Upload Gambar QR"
+echo "Perubahan utama di v4:"
+echo "  • Camera: explicit navigator.mediaDevices.getUserMedia() sebelum scanner"
+echo "  • Camera: status banner jelas (insecure/unsupported/denied/notfound/inuse)"
+echo "  • Camera: permission popup akan muncul kalau context aman (HTTPS/localhost)"
+echo "  • Layout: hapus CryptoCheck (fix SSR issue)"
+echo ""
+echo "Kalau kamera masih gak minta permission:"
+echo "  → Pastikan akses via http://localhost:3000 (BUKAN IP 192.168.x.x)"
+echo "  → Atau gunakan tombol 'Upload Gambar QR' sebagai alternatif"
 echo ""
