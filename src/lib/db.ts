@@ -11,6 +11,7 @@ export interface User {
   password_hash: string;
   nama_lengkap: string;
   kelas: "teknik" | "nonteknik" | "keduanya";
+  sub_kelas?: string;
   role: "user" | "admin";
   status: "pending" | "active" | "rejected" | "suspended";
   created_at: string;
