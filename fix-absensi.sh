@@ -1,7 +1,6 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v3 — QR Scan Camera Fix
-# Fixes: Html5Qrcode DOM timing, secure context check, file upload fallback
+# Absensi App Auto-Fix v3.1 — Build Fix (Geist font → Inter)
 # ============================================================
 set -e
 
@@ -10,7 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v3 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v3.1 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -64,19 +63,18 @@ echo "  Written: tailwind.config.js"
 mkdir -p "$(dirname 'src/app/layout.tsx')"
 cat > 'src/app/layout.tsx' << 'EOF_FIX'
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = { title: "Sistem Absensi", description: "Aplikasi absensi dengan fitur QR Code" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="id">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50`}>
+      <body className={`${inter.className} antialiased bg-gray-50`}>
         <AuthProvider>
           <CryptoCheck />
           {children}
@@ -2437,7 +2435,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v3: QR scan camera DOM timing, secure context, file upload fallback"
+        git commit -m "fix v3.1: QR scan camera + build fix (Geist→Inter font)"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2446,17 +2444,11 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v3 SELESAI ===${NC}"
+echo -e "${GREEN}=== FIX v3.1 SELESAI ===${NC}"
 echo ""
-echo "Perubahan utama di v3:"
-echo "  • QR Scanner: pakai useEffect + useRef (DOM siap dulu baru init)"
-echo "  • QR Scanner: cek isSecureContext (HTTPS/localhost required)"
-echo "  • QR Scanner: cek navigator.mediaDevices support"
-echo "  • QR Scanner: tambah fallback Upload Gambar QR (scan dari file)"
-echo "  • QR Scanner: guard mencegah multiple instance"
-echo ""
-echo "Kalau kamera masih gak bisa:"
-echo "  1. Pastikan akses via http://localhost:3000 (bukan IP)"
-echo "  2. Atau gunakan tombol 'Upload Gambar QR' sebagai alternatif"
-echo "  3. Cek DevTools Console untuk log [SCAN]"
+echo "Perubahan:"
+echo "  • layout.tsx: font Geist/Geist_Mono → Inter (fix build Next.js 13.5.6)"
+echo "  • QR Scanner: useEffect + useRef DOM timing"
+echo "  • QR Scanner: secure context + mediaDevices check"
+echo "  • QR Scanner: fallback Upload Gambar QR"
 echo ""
