@@ -65,7 +65,7 @@ export default function MateriExplorer({ files, getDownloadUrl }: MateriExplorer
         a.href = url;
         a.download = file.name;
         a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        URL.revokeObjectURL(url);
       }
     } catch (err) {
       console.error(err);
@@ -148,4 +148,3 @@ export default function MateriExplorer({ files, getDownloadUrl }: MateriExplorer
     </div>
   );
 }
-

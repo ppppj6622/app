@@ -178,8 +178,10 @@ export default function AdminPanel() {
             rec.status = req.data.jenis;
             rec.approved_at = new Date().toISOString();
             await db.saveAbsensi(absen);
+            await db.addNotification(userId, "Izin Diterima", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} telah disetujui.`, "success");
+          } else {
+            await db.addNotification(userId, "Izin Gagal", "Data absensi tidak ditemukan. Silakan hubungi admin.", "error");
           }
-          await db.addNotification(userId, "Izin Diterima", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} telah disetujui.`, "success");
         }
       } else {
         await db.updateRequest(reqId, { status: "rejected", admin_notes: notes, handled_at: new Date().toISOString() });
@@ -224,14 +226,22 @@ export default function AdminPanel() {
 
   const toggleAutoAccept = async () => {
     if (!settings) return;
-    await db.updateSettings({ auto_accept_new_accounts: !settings.auto_accept_new_accounts });
-    loadAll();
+    try {
+      await db.updateSettings({ auto_accept_new_accounts: !settings.auto_accept_new_accounts });
+      loadAll();
+    } catch (err: any) {
+      alert("Gagal mengubah setting: " + err.message);
+    }
   };
 
   const updateUserStatus = async (userId: string, status: string) => {
-    await db.updateUser(userId, { status: status as any });
-    await db.addNotification(userId, "Status Akun", `Status akun Anda diubah menjadi ${status} oleh admin.`, "warning");
-    loadAll();
+    try {
+      await db.updateUser(userId, { status: status as any });
+      await db.addNotification(userId, "Status Akun", `Status akun Anda diubah menjadi ${status} oleh admin.`, "warning");
+      loadAll();
+    } catch (err: any) {
+      alert("Gagal update status: " + err.message);
+    }
   };
 
   if (loading) {
@@ -459,3 +469,4 @@ export default function AdminPanel() {
     </div>
   );
 }
+

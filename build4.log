@@ -1,32 +1,0 @@
-   Creating an optimized production build ...
-   Disabled SWC as replacement for Babel because of custom Babel configuration ".babelrc" https://nextjs.org/docs/messages/swc-disabled
-   Using external babel configuration from /data/data/com.termux/files/home/app/.babelrc
- ⚠ It looks like there is a custom Babel configuration can be removed .
-<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: Unable to snapshot resolve dependencies
-<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: Unable to snapshot resolve dependencies
- ✓ Compiled successfully
-   Linting and checking validity of types ...
-   Collecting page data ...
-   Generating static pages (0/7) ...
-   Generating static pages (1/7) 
-   Generating static pages (3/7) 
-   Generating static pages (5/7) 
- ✓ Generating static pages (7/7) 
-   Finalizing page optimization ...
-   Collecting build traces ...
-
-Route (app)                              Size     First Load JS
-┌ ○ /                                    3.79 kB        98.1 kB
-├ ○ /_not-found                          880 B          88.2 kB
-├ ○ /admin                               125 kB          219 kB
-├ ○ /dashboard                           15.6 kB         110 kB
-└ ○ /login                               5.98 kB         100 kB
-+ First Load JS shared by all            87.3 kB
-  ├ chunks/503-496b19868b5a492a.js       34.3 kB
-  ├ chunks/fd9d1056-a6114d340df47b0f.js  50.9 kB
-  ├ chunks/main-app-b246ca955745eba1.js  233 B
-  └ chunks/webpack-fc1ab67abd2a98ad.js   1.85 kB
-
-
-○  (Static)  automatically rendered as static HTML (uses no initial props)
-

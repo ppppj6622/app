@@ -25,20 +25,17 @@ export default function QRDisplay({ userId, qrSecret }: { userId: string; qrSecr
 
   useEffect(() => {
     fetchQR();
-  }, [userId, qrSecret]);
-
-  useEffect(() => {
     const interval = setInterval(() => {
-      setCountdown((prev) => prev - 1);
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          fetchQR();
+          return 300;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (countdown <= 0) {
-      fetchQR();
-    }
-  }, [countdown]);
+  }, [userId, qrSecret]);
 
   return (
     <div className="card text-center">
@@ -67,4 +64,3 @@ export default function QRDisplay({ userId, qrSecret }: { userId: string; qrSecr
     </div>
   );
 }
-

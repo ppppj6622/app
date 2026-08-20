@@ -117,7 +117,6 @@ export default function FileExplorer() {
   };
 
   const handleImportDB = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await db.init();
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -135,7 +134,6 @@ export default function FileExplorer() {
   };
 
   const handleResetDB = async () => {
-    await db.init();
     if (confirm("PERINGATAN: Ini akan menghapus SEMUA data! Yakin?")) {
       if (prompt('Ketik "RESET" untuk konfirmasi:') === "RESET") {
         await db.resetDatabase();
@@ -278,4 +276,3 @@ export default function FileExplorer() {
     </div>
   );
 }
-

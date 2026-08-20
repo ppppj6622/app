@@ -10,7 +10,7 @@ import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle } from "
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, role } = useAuth();
+  const { login, role, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<"login" | "register" | "admin">("login");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -20,9 +20,13 @@ function LoginContent() {
   useEffect(() => {
     if (searchParams.get("tab") === "register") setActiveTab("register");
     if (searchParams.get("admin") === "1") setActiveTab("admin");
-    if (role === "admin") router.push("/admin/");
-    if (role === "user") router.push("/dashboard/");
-  }, [role, router, searchParams]);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!isLoading && role) {
+      router.push(role === "admin" ? "/admin/" : "/dashboard/");
+    }
+  }, [isLoading, role, router]);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -104,6 +108,7 @@ function LoginContent() {
       await db.init();
       const user = await db.getUserByUsername(adminData.username);
       if (!user || user.role !== "admin") throw new Error("Invalid credentials");
+      if (user.status !== "active") throw new Error("Akun tidak aktif. Hubungi super admin.");
       const valid = await verifyPassword(adminData.password, user.password_hash);
       if (!valid) throw new Error("Invalid credentials");
       await db.updateUser(user.id, { last_login: new Date().toISOString() });

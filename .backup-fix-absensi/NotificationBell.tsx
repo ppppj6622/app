@@ -40,7 +40,7 @@ export default function NotificationBell({ userId }: { userId: string }) {
           ) : (
             <div className="max-h-64 overflow-y-auto">
               {notifications.map((n) => (
-                <div key={n.id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 ${!n.read ? "bg-blue-50/50" : ""}`} onClick={() => { markRead(n.id); setShow(false); }}>
+                <div key={n.id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0 ${!n.read ? "bg-blue-50/50" : ""}`} onClick={() => markRead(n.id)}>
                   <div className="flex items-start gap-2">
                     <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${n.type === "success" ? "bg-green-500" : n.type === "error" ? "bg-red-500" : n.type === "warning" ? "bg-yellow-500" : "bg-blue-500"}`} />
                     <div>
@@ -57,4 +57,3 @@ export default function NotificationBell({ userId }: { userId: string }) {
     </div>
   );
 }
-

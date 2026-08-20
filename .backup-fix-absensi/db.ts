@@ -107,10 +107,7 @@ class AppDB {
 
   async init(): Promise<void> {
     if (this.initPromise) return this.initPromise;
-    this.initPromise = this._init().catch((err) => {
-      this.initPromise = null;
-      throw err;
-    });
+    this.initPromise = this._init();
     return this.initPromise;
   }
 
@@ -464,11 +461,6 @@ class AppDB {
     if (data.notifications) for (const n of data.notifications) await this.putOne("notifications", n);
     if (data.appeals) for (const a of data.appeals) await this.putOne("appeals", a);
     if (data.settings?.[0]) await this.putOne("settings", data.settings[0]);
-    if (data.materi) {
-      for (const m of data.materi) {
-        await this.putOne("materi", { ...m, blob: undefined });
-      }
-    }
   }
 
   async resetDatabase(): Promise<void> {
@@ -486,4 +478,3 @@ class AppDB {
 }
 
 export const db = new AppDB();
-

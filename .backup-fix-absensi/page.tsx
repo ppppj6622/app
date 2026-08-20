@@ -17,7 +17,7 @@ import {
 
 export default function Dashboard() {
   const router = useRouter();
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const [data, setData] = useState<any>(null);
   const [heatmap, setHeatmap] = useState<Record<string, string>>({});
   const [materiFiles, setMateriFiles] = useState<any[]>([]);
@@ -37,7 +37,6 @@ export default function Dashboard() {
     await db.init();
     if (!user) return;
     try {
-      await refreshUser();
       const u = await db.getUserById(user.id);
       setDbUser(u);
       const absensi = await db.getAbsensi(user.id);
@@ -208,4 +207,3 @@ export default function Dashboard() {
     </div>
   );
 }
-

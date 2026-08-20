@@ -27,8 +27,8 @@ export default function IzinForm({ userId, onSuccess }: { userId: string; onSucc
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
     await db.init();
+    e.preventDefault();
     setLoading(true);
     setError("");
     setSuccess("");
@@ -112,4 +112,3 @@ export default function IzinForm({ userId, onSuccess }: { userId: string; onSucc
     </div>
   );
 }
-

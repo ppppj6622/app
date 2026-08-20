@@ -9,12 +9,13 @@ module.exports = {
     extend: {
       colors: {
         primary: '#2563eb',
-        success: '#16a34a',
-        danger: '#dc2626',
-        warning: '#d97706',
-      },
+        secondary: '#64748b',
+        success: '#22c55e',
+        warning: '#f59e0b',
+        danger: '#ef4444',
+        info: '#3b82f6',
+      }
     },
   },
   plugins: [],
 }
-
