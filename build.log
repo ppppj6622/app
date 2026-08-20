@@ -1,0 +1,32 @@
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+  ▲ Next.js 14.2.5
+
+   Creating an optimized production build ...
+   Downloading swc package @next/swc-android-arm64...
+ ⨯ Failed to download swc package from https://registry.npmjs.org/@next/swc-android-arm64/-/swc-android-arm64-14.2.5.tgz
+/data/data/com.termux/files/home/app/node_modules/next/dist/lib/download-swc.js:98
+                throw new Error(`request failed with status ${res.status}`);
+                      ^
+
+Error: request failed with status 404
+    at /data/data/com.termux/files/home/app/node_modules/next/dist/lib/download-swc.js:98:23
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async extractBinary (/data/data/com.termux/files/home/app/node_modules/next/dist/lib/download-swc.js:92:9)
+    at async downloadNativeNextSwc (/data/data/com.termux/files/home/app/node_modules/next/dist/lib/download-swc.js:153:9)
+    at async tryLoadNativeWithFallback (/data/data/com.termux/files/home/app/node_modules/next/dist/build/swc/index.js:292:5)
+    at async /data/data/com.termux/files/home/app/node_modules/next/dist/build/swc/index.js:276:40
+
+Node.js v24.15.0
+
+> Build error occurred
+Error: Jest worker encountered 1 child process exceptions, exceeding retry limit
+    at ChildProcessWorker.initialize (/data/data/com.termux/files/home/app/node_modules/next/dist/compiled/jest-worker/index.js:1:11580)
+    at ChildProcessWorker._onExit (/data/data/com.termux/files/home/app/node_modules/next/dist/compiled/jest-worker/index.js:1:12545)
+    at ChildProcess.emit (node:events:521:24)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
+  type: 'WorkerError'
+}

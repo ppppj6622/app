@@ -1,0 +1,14 @@
+  ▲ Next.js 14.2.5
+
+   Creating an optimized production build ...
+ ⚠ Attempted to load @next/swc-android-arm64, but it was not installed
+ ⨯ Failed to load SWC binary for android/arm64, see more info here: https://nextjs.org/docs/messages/failed-loading-swc
+
+> Build error occurred
+Error: Jest worker encountered 1 child process exceptions, exceeding retry limit
+    at ChildProcessWorker.initialize (/data/data/com.termux/files/home/app/node_modules/next/dist/compiled/jest-worker/index.js:1:11580)
+    at ChildProcessWorker._onExit (/data/data/com.termux/files/home/app/node_modules/next/dist/compiled/jest-worker/index.js:1:12545)
+    at ChildProcess.emit (node:events:521:24)
+    at ChildProcess._handle.onexit (node:internal/child_process:295:12) {
+  type: 'WorkerError'
+}
