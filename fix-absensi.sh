@@ -1,7 +1,8 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v4.2 — DOM Race Condition Fix
-# Fixes: scanner div always in DOM, retry until element found
+# Absensi App Auto-Fix v5 — Major Feature Update
+# Features: forgot password, admin self-change, download CSV/JSON,
+# profile modal, 1x/week attendance, class-specific QR scan
 # ============================================================
 set -e
 
@@ -10,7 +11,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v4.2 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v5 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -21,19 +22,10 @@ fi
 cd "$PROJECT_ROOT"
 echo -e "${GREEN}Project root: $(pwd)${NC}"
 
-mkdir -p .backup-fix-absensi-v4
-cp tailwind.config.js .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/lib/db.ts .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/lib/auth.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/app/layout.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/app/login/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/app/admin/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/app/dashboard/page.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/components/IzinForm.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/components/FileExplorer.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/components/MateriExplorer.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/components/QRDisplay.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
-cp src/components/NotificationBell.tsx .backup-fix-absensi-v4/ 2>/dev/null || true
+mkdir -p .backup-fix-absensi-v5
+for f in tailwind.config.js src/lib/db.ts src/lib/auth.tsx src/app/layout.tsx src/app/login/page.tsx src/app/admin/page.tsx src/app/dashboard/page.tsx src/app/globals.css src/components/IzinForm.tsx src/components/FileExplorer.tsx src/components/MateriExplorer.tsx src/components/QRDisplay.tsx src/components/NotificationBell.tsx src/components/HeatMap.tsx; do
+  cp "$f" .backup-fix-absensi-v5/ 2>/dev/null || true
+done
 echo -e "${GREEN}Backup OK${NC}"
 
 mkdir -p "$(dirname 'tailwind.config.js')"
@@ -61,30 +53,6 @@ module.exports = {
 EOF_FIX
 echo "  Written: tailwind.config.js"
 
-mkdir -p "$(dirname 'src/app/layout.tsx')"
-cat > 'src/app/layout.tsx' << 'EOF_FIX'
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import { AuthProvider } from "@/lib/auth";
-
-const inter = Inter({ subsets: ["latin"] });
-
-export const metadata: Metadata = { title: "Sistem Absensi", description: "Aplikasi absensi dengan fitur QR Code" };
-
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <html lang="id">
-      <body className={`${inter.className} antialiased bg-gray-50`}>
-        <AuthProvider>{children}</AuthProvider>
-      </body>
-    </html>
-  );
-}
-
-EOF_FIX
-echo "  Written: src/app/layout.tsx"
-
 mkdir -p "$(dirname 'src/app/admin/page.tsx')"
 cat > 'src/app/admin/page.tsx' << 'EOF_FIX'
 "use client";
@@ -93,15 +61,15 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { verifyQR } from "@/lib/crypto";
+import { verifyQR, hashPassword } from "@/lib/crypto";
 import { Html5Qrcode } from "html5-qrcode";
 import FileExplorer from "@/components/FileExplorer";
 import NotificationBell from "@/components/NotificationBell";
 import {
-  LogOut, Users, QrCode, CheckCircle, XCircle, Clock, AlertCircle,
-  BarChart3, Settings, Bell, ScanLine, Calendar, MessageSquare,
-  UserCheck, UserX, FolderOpen, ChevronDown, ChevronUp, Shield,
-  Upload, Camera, CameraOff, Lock, Wifi
+  LogOut, Users, QrCode, CheckCircle, XCircle, AlertCircle,
+  BarChart3, Bell, ScanLine, MessageSquare, Shield,
+  Upload, Camera, CameraOff, Download, FileJson, FileSpreadsheet,
+  KeyRound, UserCog, Lock
 } from "lucide-react";
 
 type CameraStatus = "idle" | "checking" | "scanning" | "insecure" | "unsupported" | "denied" | "notfound" | "inuse" | "error";
@@ -109,7 +77,7 @@ type CameraStatus = "idle" | "checking" | "scanning" | "insecure" | "unsupported
 export default function AdminPanel() {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState<"dashboard" | "absensi" | "requests" | "users" | "files" | "appeals">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "absensi" | "requests" | "users" | "files" | "appeals" | "settings">("dashboard");
   const [stats, setStats] = useState({ total_users: 0, active_users: 0, pending_users: 0, today_hadir: 0, today_izin: 0, today_sakit: 0, today_alpha: 0, pending_requests: 0 });
   const [absensiToday, setAbsensiToday] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
@@ -121,9 +89,12 @@ export default function AdminPanel() {
   const [scanError, setScanError] = useState("");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const [selectedKelas, setSelectedKelas] = useState("all");
+  const [scanKelas, setScanKelas] = useState<"teknik" | "nonteknik">("teknik");
   const [loading, setLoading] = useState(true);
+  const [showAdminSettings, setShowAdminSettings] = useState(false);
+  const [adminPwData, setAdminPwData] = useState({ oldPassword: "", newPassword: "", newUsername: "" });
+  const [adminPwMsg, setAdminPwMsg] = useState("");
 
-  const fileScannerRef = useRef<HTMLDivElement>(null);
   const scannerInstanceRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
@@ -132,69 +103,38 @@ export default function AdminPanel() {
     loadAll();
   }, [user]);
 
-  // Scanner lifecycle: start/stop based on cameraStatus === "scanning"
   useEffect(() => {
     if (cameraStatus !== "scanning") {
-      if (scannerInstanceRef.current) {
-        scannerInstanceRef.current.stop().catch(() => {});
-        scannerInstanceRef.current = null;
-      }
+      if (scannerInstanceRef.current) { scannerInstanceRef.current.stop().catch(() => {}); scannerInstanceRef.current = null; }
       return;
     }
-
+    setScanResult(null); setScanError("");
     let cancelled = false;
     let scanner: Html5Qrcode | null = null;
-
     const initScanner = async () => {
-      // Retry up to 20 times (2 seconds total) until element exists
       let attempts = 0;
-      while (!document.getElementById("admin-qr-scanner") && attempts < 20) {
-        await new Promise((r) => setTimeout(r, 100));
-        if (cancelled) return;
-        attempts++;
-      }
+      while (!document.getElementById("admin-qr-scanner") && attempts < 20) { await new Promise((r) => setTimeout(r, 100)); if (cancelled) return; attempts++; }
       if (cancelled) return;
-
-      const el = document.getElementById("admin-qr-scanner");
-      if (!el) {
-        setCameraStatus("error");
-        setScanError("QR container tidak ditemukan di DOM setelah 2 detik.");
-        return;
-      }
-
+      if (!document.getElementById("admin-qr-scanner")) { setCameraStatus("error"); setScanError("QR container tidak ditemukan."); return; }
+      if (typeof window !== "undefined" && !window.isSecureContext) { setCameraStatus("insecure"); return; }
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) { setCameraStatus("unsupported"); return; }
       try {
+        if (scannerInstanceRef.current) { try { await scannerInstanceRef.current.stop(); } catch (e) {} scannerInstanceRef.current = null; }
         scanner = new Html5Qrcode("admin-qr-scanner");
         scannerInstanceRef.current = scanner;
-
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async (decodedText) => {
-            if (cancelled) return;
-            console.log("[SCAN] QR detected:", decodedText);
-            try { if (scanner) await scanner.stop(); } catch (e) {}
-            scannerInstanceRef.current = null;
-            setCameraStatus("idle");
-            await handleScan(decodedText);
-          },
-          () => {}
-        );
-        console.log("[SCAN] Camera started");
+        await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, async (decodedText) => {
+          if (cancelled) return;
+          try { if (scanner) await scanner.stop(); } catch (e) {}
+          scannerInstanceRef.current = null;
+          setCameraStatus("idle");
+          await handleScan(decodedText);
+        }, () => {});
       } catch (err: any) {
-        if (!cancelled) {
-          console.error("[SCAN] Start error:", err);
-          setCameraStatus("error");
-          setScanError(err?.message || "Gagal memulai scanner QR.");
-        }
+        if (!cancelled) { setCameraStatus("error"); setScanError(err?.message || "Gagal memulai scanner."); }
       }
     };
-
     initScanner();
-
-    return () => {
-      cancelled = true;
-      if (scanner) scanner.stop().catch(() => {});
-    };
+    return () => { cancelled = true; if (scanner) scanner.stop().catch(() => {}); };
   }, [cameraStatus]);
 
   const loadAll = async () => {
@@ -204,293 +144,216 @@ export default function AdminPanel() {
       const allRequests = await db.getRequests();
       const allAppeals = await db.getAppeals();
       const appSettings = await db.getSettings();
-
       const total_users = allUsers.length;
       const active_users = allUsers.filter((u) => u.status === "active").length;
       const pending_users = allUsers.filter((u) => u.status === "pending").length;
       const pending_requests = allRequests.filter((r) => r.status === "pending").length;
-
       let today_hadir = 0, today_izin = 0, today_sakit = 0, today_alpha = 0;
       for (const u of allUsers) {
         if (u.role === "admin") continue;
         const absen = await db.getAbsensi(u.id);
         const todayRec = absen.records.find((r) => r.date === selectedDate);
-        if (todayRec) {
-          if (todayRec.status === "hadir") today_hadir++;
-          else if (todayRec.status === "izin") today_izin++;
-          else if (todayRec.status === "sakit") today_sakit++;
-          else if (todayRec.status === "alpha") today_alpha++;
-        } else {
-          today_alpha++;
-        }
+        if (todayRec) { if (todayRec.status === "hadir") today_hadir++; else if (todayRec.status === "izin") today_izin++; else if (todayRec.status === "sakit") today_sakit++; else if (todayRec.status === "alpha") today_alpha++; }
+        else today_alpha++;
       }
-
       setStats({ total_users, active_users, pending_users, today_hadir, today_izin, today_sakit, today_alpha, pending_requests });
       setRequests(allRequests.sort((a, b) => b.created_at.localeCompare(a.created_at)));
       setUsers(allUsers.filter((u) => u.role === "user"));
       setAppeals(allAppeals.sort((a, b) => b.created_at.localeCompare(a.created_at)));
       setSettings(appSettings);
-
       const absensiData: any[] = [];
       for (const u of allUsers) {
         if (u.role === "admin") continue;
         if (selectedKelas !== "all" && u.kelas !== selectedKelas) continue;
         const absen = await db.getAbsensi(u.id);
         const rec = absen.records.find((r) => r.date === selectedDate);
-        absensiData.push({
-          user_id: u.id, username: u.username, nama_lengkap: u.nama_lengkap,
-          kelas: u.kelas, sub_kelas: u.sub_kelas, status: rec?.status || "alpha", record: rec,
-        });
+        absensiData.push({ user_id: u.id, username: u.username, nama_lengkap: u.nama_lengkap, kelas: u.kelas, status: rec?.status || "alpha", record: rec });
       }
       setAbsensiToday(absensiData);
-    } catch (err) {
-      console.error("[ADMIN] loadAll error:", err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
-  // ========== CAMERA PRE-CHECK ==========
   const checkAndStartCamera = async () => {
-    setScanResult(null);
-    setScanError("");
-    setCameraStatus("checking");
-
-    // 1. Check secure context
-    if (typeof window !== "undefined" && !window.isSecureContext) {
-      setCameraStatus("insecure");
-      return;
-    }
-
-    // 2. Check API support
-    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraStatus("unsupported");
-      return;
-    }
-
-    // 3. Try getUserMedia explicitly (this triggers the permission popup)
+    setScanResult(null); setScanError(""); setCameraStatus("checking");
+    if (typeof window !== "undefined" && !window.isSecureContext) { setCameraStatus("insecure"); return; }
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) { setCameraStatus("unsupported"); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      // Permission granted! Stop the test stream immediately
-      stream.getTracks().forEach((track) => track.stop());
-      console.log("[CAMERA] Permission granted by user");
+      stream.getTracks().forEach((t) => t.stop());
       setCameraStatus("scanning");
     } catch (err: any) {
-      console.error("[CAMERA] getUserMedia error:", err.name, err.message);
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        setCameraStatus("denied");
-      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-        setCameraStatus("notfound");
-      } else if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-        setCameraStatus("inuse");
-      } else {
-        setCameraStatus("error");
-        setScanError(err?.message || "Gagal mengakses kamera.");
-      }
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") setCameraStatus("denied");
+      else if (err.name === "NotFoundError") setCameraStatus("notfound");
+      else if (err.name === "NotReadableError") setCameraStatus("inuse");
+      else { setCameraStatus("error"); setScanError(err?.message); }
     }
   };
 
-  const stopScan = async () => {
-    if (scannerInstanceRef.current) {
-      try { await scannerInstanceRef.current.stop(); } catch (e) {}
-      scannerInstanceRef.current = null;
-    }
-    setCameraStatus("idle");
-  };
+  const stopScan = async () => { if (scannerInstanceRef.current) { try { await scannerInstanceRef.current.stop(); } catch (e) {} scannerInstanceRef.current = null; } setCameraStatus("idle"); };
 
-  // Fallback: scan QR from uploaded image
   const handleFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setScanResult(null);
-    setScanError("");
-    try {
-      const tmpId = "tmp-qr-file-" + Date.now();
-      const tmpDiv = document.createElement("div");
-      tmpDiv.id = tmpId;
-      tmpDiv.style.display = "none";
-      document.body.appendChild(tmpDiv);
-      const scanner = new Html5Qrcode(tmpId);
-      const decodedText = await scanner.scanFile(file, true);
-      await scanner.clear();
-      document.body.removeChild(tmpDiv);
-      await handleScan(decodedText);
-    } catch (err: any) {
-      setScanError("Gagal scan file QR: " + (err?.message || "Format tidak valid / QR tidak terbaca"));
-    }
+    const file = e.target.files?.[0]; if (!file) return;
+    setScanResult(null); setScanError("");
+    try { const tmpId = "tmp-qr-" + Date.now(); const tmp = document.createElement("div"); tmp.id = tmpId; tmp.style.display = "none"; document.body.appendChild(tmp); const scanner = new Html5Qrcode(tmpId); const text = await scanner.scanFile(file, true); await scanner.clear(); document.body.removeChild(tmp); await handleScan(text); }
+    catch (err: any) { setScanError("Gagal scan file: " + (err?.message || "QR tidak terbaca")); }
     e.target.value = "";
   };
 
   const handleScan = async (qrData: string) => {
     try {
-      const result = await verifyQR(qrData, async (id) => {
-        const u = await db.getUserById(id);
-        return u?.qr_secret || null;
-      });
+      const result = await verifyQR(qrData, async (id) => { const u = await db.getUserById(id); return u?.qr_secret || null; });
       if (!result.valid) { setScanResult({ error: result.reason }); return; }
       const scannedUser = await db.getUserById(result.userId!);
       if (!scannedUser) { setScanResult({ error: "User tidak ditemukan" }); return; }
-      const absensi = await db.getAbsensi(scannedUser.id);
-      const already = absensi.records.find((r) => r.date === selectedDate && r.status === "hadir");
-      if (already) { setScanResult({ user: scannedUser, status: "already_scanned" }); return; }
+
+      // Check if user should attend this session
+      const userKelas = scannedUser.kelas;
+      if (userKelas !== "keduanya" && userKelas !== scanKelas) {
+        setScanResult({ error: `User ${scannedUser.nama_lengkap} adalah kelas ${userKelas}. Scan ini untuk ${scanKelas}.` });
+        return;
+      }
+
       const appSettings = await db.getSettings();
+      const currentWeek = appSettings.current_week;
+      const absensi = await db.getAbsensi(scannedUser.id);
+
+      // Check 1x per week per class
+      const weekRecords = absensi.records.filter((r) => r.week === currentWeek && r.status === "hadir");
+      const hasTeknik = weekRecords.some((r) => r.type === "teknik" || !r.type);
+      const hasNonteknik = weekRecords.some((r) => r.type === "nonteknik");
+
+      if (userKelas === "teknik" && hasTeknik) { setScanResult({ user: scannedUser, status: "already_week" }); return; }
+      if (userKelas === "nonteknik" && hasNonteknik) { setScanResult({ user: scannedUser, status: "already_week" }); return; }
+      if (userKelas === "keduanya") {
+        if (scanKelas === "teknik" && hasTeknik) { setScanResult({ user: scannedUser, status: "already_week_teknik" }); return; }
+        if (scanKelas === "nonteknik" && hasNonteknik) { setScanResult({ user: scannedUser, status: "already_week_nonteknik" }); return; }
+      }
+
       await db.addAbsensiRecord(scannedUser.id, {
-        date: selectedDate, status: "hadir", type: "qr", week: appSettings.current_week,
+        date: selectedDate, status: "hadir", type: scanKelas, week: currentWeek,
         scanned_at: new Date().toISOString(), scanned_by: user?.id || "admin",
       });
-      await db.addNotification(scannedUser.id, "Absensi Berhasil", `Anda telah ditandai hadir pada ${selectedDate}.`, "success");
+      await db.addNotification(scannedUser.id, "Absensi Berhasil", `Hadir ${scanKelas} minggu ${currentWeek}.`, "success");
       setScanResult({ user: scannedUser, status: "success" });
       loadAll();
-    } catch (err: any) {
-      setScanResult({ error: err?.message || "Error verifikasi QR" });
-    }
+    } catch (err: any) { setScanResult({ error: err?.message || "Error verifikasi" }); }
   };
 
   const handleRequest = async (reqId: string, action: "approve" | "reject", notes: string = "") => {
     try {
-      const req = await db.getRequest(reqId);
-      if (!req) return;
-      const userId = req.user_id;
+      const req = await db.getRequest(reqId); if (!req) return;
+      const uid = req.user_id;
       if (action === "approve") {
         await db.updateRequest(reqId, { status: "approved", admin_notes: notes, handled_at: new Date().toISOString() });
-        if (req.type === "new_account") {
-          await db.updateUser(userId, { status: "active" });
-          await db.addNotification(userId, "Akun Diterima", "Akun Anda telah disetujui oleh admin. Silakan login.", "success");
-        } else if (req.type === "password_reset") {
-          await db.updateUser(userId, { password_hash: req.data.new_password_hash });
-          await db.addNotification(userId, "Password Diubah", "Password Anda telah diubah oleh admin. Silakan login dengan password baru.", "success");
-        } else if (req.type === "username_change") {
-          await db.updateUser(userId, { username: req.data.new_username });
-          await db.addNotification(userId, "Username Diubah", `Username Anda telah diubah ke "${req.data.new_username}".`, "success");
-        } else if (req.type === "izin") {
-          const absen = await db.getAbsensi(userId);
+        if (req.type === "new_account") { await db.updateUser(uid, { status: "active" }); await db.addNotification(uid, "Akun Diterima", "Akun disetujui. Silakan login.", "success"); }
+        else if (req.type === "password_reset") { await db.updateUser(uid, { password_hash: req.data.new_password_hash }); await db.addNotification(uid, "Password Diubah", "Password telah diubah. Login dengan password baru.", "success"); }
+        else if (req.type === "username_change") { await db.updateUser(uid, { username: req.data.new_username }); await db.addNotification(uid, "Username Diubah", `Username diubah ke "${req.data.new_username}".`, "success"); }
+        else if (req.type === "profile_change") {
+          await db.updateUser(uid, { nama_lengkap: req.data.new_nama_lengkap, username: req.data.new_username });
+          await db.addNotification(uid, "Profil Diubah", "Perubahan profil disetujui admin.", "success");
+        }
+        else if (req.type === "izin") {
+          const absen = await db.getAbsensi(uid);
           const rec = absen.records.find((r) => r.date === req.data.tanggal && r.status.startsWith("pending_"));
-          if (rec) {
-            rec.status = req.data.jenis; rec.approved_at = new Date().toISOString();
-            await db.saveAbsensi(absen);
-            await db.addNotification(userId, "Izin Diterima", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} telah disetujui.`, "success");
-          } else {
-            await db.addNotification(userId, "Izin Gagal", "Data absensi tidak ditemukan. Silakan hubungi admin.", "error");
-          }
+          if (rec) { rec.status = req.data.jenis; rec.approved_at = new Date().toISOString(); await db.saveAbsensi(absen); await db.addNotification(uid, "Izin Diterima", `Izin ${req.data.tanggal} disetujui.`, "success"); }
+          else await db.addNotification(uid, "Izin Gagal", "Data tidak ditemukan.", "error");
         }
       } else {
         await db.updateRequest(reqId, { status: "rejected", admin_notes: notes, handled_at: new Date().toISOString() });
-        if (req.type === "izin") {
-          const absen = await db.getAbsensi(userId);
-          const rec = absen.records.find((r) => r.date === req.data.tanggal && r.status.startsWith("pending_"));
-          if (rec) { rec.status = "alpha"; rec.rejected_at = new Date().toISOString(); await db.saveAbsensi(absen); }
-          await db.addNotification(userId, "Izin Ditolak", `Pengajuan ${req.data.jenis} Anda untuk ${req.data.tanggal} DITOLAK. Alasan: ${notes}.`, "error");
-        } else {
-          if (req.type === "new_account") await db.updateUser(userId, { status: "rejected" });
-          await db.addNotification(userId, "Request Ditolak", `Permintaan ${req.type} Anda ditolak. Alasan: ${notes}.`, "error");
-        }
+        if (req.type === "izin") { const absen = await db.getAbsensi(uid); const rec = absen.records.find((r) => r.date === req.data.tanggal && r.status.startsWith("pending_")); if (rec) { rec.status = "alpha"; rec.rejected_at = new Date().toISOString(); await db.saveAbsensi(absen); } await db.addNotification(uid, "Izin Ditolak", `Izin ditolak. Alasan: ${notes}.`, "error"); }
+        else { if (req.type === "new_account") await db.updateUser(uid, { status: "rejected" }); await db.addNotification(uid, "Request Ditolak", `${req.type} ditolak. Alasan: ${notes}.`, "error"); }
       }
       loadAll();
-    } catch (err: any) {
-      alert("Gagal memproses request: " + err.message);
-    }
+    } catch (err: any) { alert("Gagal: " + err.message); }
   };
 
   const handleAppeal = async (appealId: string, action: "approve" | "reject", response: string = "") => {
-    try {
-      await db.updateAppeal(appealId, { status: action === "approve" ? "approved" : "rejected", admin_response: response, handled_at: new Date().toISOString() });
-      const allAppeals = await db.getAppeals();
-      const appeal = allAppeals.find((a) => a.id === appealId);
-      if (!appeal) return;
-      if (action === "approve") {
-        const req = await db.getRequest(appeal.request_id);
-        if (req) await db.updateRequest(req.id, { status: "pending" });
-        await db.addNotification(appeal.user_id, "Banding Diterima", "Banding Anda diterima. Request Anda telah di-reopen.", "success");
-      } else {
-        await db.addNotification(appeal.user_id, "Banding Ditolak", `Banding Anda ditolak. ${response}.`, "error");
-      }
-      loadAll();
-    } catch (err: any) {
-      alert("Gagal memproses banding: " + err.message);
-    }
+    try { await db.updateAppeal(appealId, { status: action === "approve" ? "approved" : "rejected", admin_response: response, handled_at: new Date().toISOString() }); loadAll(); }
+    catch (err: any) { alert("Gagal: " + err.message); }
   };
 
   const toggleAutoAccept = async () => {
     if (!settings) return;
     try { await db.updateSettings({ auto_accept_new_accounts: !settings.auto_accept_new_accounts }); loadAll(); }
-    catch (err: any) { alert("Gagal mengubah setting: " + err.message); }
+    catch (err: any) { alert("Gagal: " + err.message); }
   };
 
-  const updateUserStatus = async (userId: string, status: string) => {
-    try { await db.updateUser(userId, { status: status as any }); await db.addNotification(userId, "Status Akun", `Status akun Anda diubah menjadi ${status} oleh admin.`, "warning"); loadAll(); }
-    catch (err: any) { alert("Gagal update status: " + err.message); }
+  const updateUserStatus = async (uid: string, status: string) => {
+    try { await db.updateUser(uid, { status: status as any }); await db.addNotification(uid, "Status Akun", `Status diubah ke ${status}.`, "warning"); loadAll(); }
+    catch (err: any) { alert("Gagal: " + err.message); }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  // Admin self-change password/username (mandatory, no request)
+  const handleAdminSelfChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminPwMsg("");
+    try {
+      await db.init();
+      const adminUser = await db.getUserById(user!.id);
+      if (!adminUser) throw new Error("Admin tidak ditemukan");
+      const { verifyPassword } = await import("@/lib/crypto");
+      const valid = await verifyPassword(adminPwData.oldPassword, adminUser.password_hash);
+      if (!valid) throw new Error("Password lama salah");
+      const updates: any = {};
+      if (adminPwData.newUsername.trim()) updates.username = adminPwData.newUsername.trim();
+      if (adminPwData.newPassword.length >= 6) updates.password_hash = await hashPassword(adminPwData.newPassword);
+      if (Object.keys(updates).length === 0) throw new Error("Tidak ada perubahan");
+      await db.updateUser(adminUser.id, updates);
+      setAdminPwMsg("Berhasil diubah!");
+      setAdminPwData({ oldPassword: "", newPassword: "", newUsername: "" });
+    } catch (err: any) { setAdminPwMsg("Error: " + err.message); }
+  };
 
-  // Camera status banner messages
+  // Download attendance as CSV
+  const downloadCSV = async (filterKelas?: string) => {
+    await db.init();
+    const allUsers = await db.getAllUsers();
+    const rows: string[] = ["Nama,Username,Kelas,Tanggal,Status,Minggu,Scanned By"];
+    for (const u of allUsers) {
+      if (u.role === "admin") continue;
+      if (filterKelas && u.kelas !== filterKelas && u.kelas !== "keduanya") continue;
+      const absen = await db.getAbsensi(u.id);
+      for (const r of absen.records) {
+        if (filterKelas && r.type && r.type !== filterKelas && u.kelas !== "keduanya") continue;
+        rows.push(`"${u.nama_lengkap}","${u.username}","${u.kelas}","${r.date}","${r.status}","${r.week}","${r.scanned_by || ""}"`);
+      }
+    }
+    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `absensi-${filterKelas || "all"}-${new Date().toISOString().split("T")[0]}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  // Download attendance as JSON
+  const downloadJSON = async (filterKelas?: string) => {
+    await db.init();
+    const allUsers = await db.getAllUsers();
+    const data: any[] = [];
+    for (const u of allUsers) {
+      if (u.role === "admin") continue;
+      if (filterKelas && u.kelas !== filterKelas && u.kelas !== "keduanya") continue;
+      const absen = await db.getAbsensi(u.id);
+      const filtered = filterKelas ? absen.records.filter((r) => !r.type || r.type === filterKelas || u.kelas === "keduanya") : absen.records;
+      data.push({ user: { nama: u.nama_lengkap, username: u.username, kelas: u.kelas }, records: filtered });
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `absensi-${filterKelas || "all"}-${new Date().toISOString().split("T")[0]}.json`; a.click(); URL.revokeObjectURL(url);
+  };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
+
   const cameraBanner = () => {
     switch (cameraStatus) {
-      case "insecure":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm max-w-lg text-center">
-            <Lock className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Kamera Tidak Tersedia</p>
-            <p className="mt-1">Browser memblokir kamera karena akses tidak aman (bukan HTTPS/localhost).</p>
-            <p className="mt-2 text-xs">
-              <b>Solusi:</b> Akses via <code className="bg-orange-100 px-1 rounded">http://localhost:3000</code> (satu device) atau setup HTTPS.
-              <br />Atau gunakan tombol <b>"Upload Gambar QR"</b> di bawah.
-            </p>
-          </div>
-        );
-      case "unsupported":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
-            <AlertCircle className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Browser Tidak Mendukung Kamera</p>
-            <p className="mt-1">Gunakan Chrome/Firefox/Safari terbaru.</p>
-          </div>
-        );
-      case "denied":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
-            <AlertCircle className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Permission Kamera Ditolak</p>
-            <p className="mt-1">Anda pernah menolak akses kamera. Buka pengaturan browser:</p>
-            <p className="mt-2 text-xs">
-              Chrome: Settings → Privacy → Site Settings → Camera → Allow this site<br />
-              Safari: Settings → Safari → Camera → Allow<br />
-              Atau gunakan <b>"Upload Gambar QR"</b>.
-            </p>
-          </div>
-        );
-      case "notfound":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center">
-            <AlertCircle className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Kamera Tidak Ditemukan</p>
-            <p className="mt-1">Pastikan device memiliki kamera dan tidak sedang dipakai aplikasi lain.</p>
-          </div>
-        );
-      case "inuse":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center">
-            <AlertCircle className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Kamera Sedang Digunakan</p>
-            <p className="mt-1">Kamera sedang dipakai aplikasi lain (Zoom, Meet, dll). Tutup aplikasi tersebut lalu coba lagi.</p>
-          </div>
-        );
-      case "error":
-        return (
-          <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center">
-            <AlertCircle className="w-5 h-5 inline mb-1" />
-            <p className="font-semibold">Error Kamera</p>
-            <p className="mt-1">{scanError || "Gagal memulai kamera."}</p>
-          </div>
-        );
-      default:
-        return null;
+      case "insecure": return <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm max-w-lg text-center"><p className="font-semibold">Kamera Tidak Tersedia</p><p className="mt-1">Akses tidak aman. Gunakan localhost:3000 atau HTTPS.</p></div>;
+      case "unsupported": return <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center"><p className="font-semibold">Browser Tidak Mendukung Kamera</p></div>;
+      case "denied": return <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center"><p className="font-semibold">Permission Kamera Ditolak</p><p className="mt-1">Buka Settings Browser → Privacy → Camera → Allow this site.</p></div>;
+      case "notfound": return <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center"><p className="font-semibold">Kamera Tidak Ditemukan</p></div>;
+      case "inuse": return <div className="mt-4 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm max-w-lg text-center"><p className="font-semibold">Kamera Sedang Digunakan</p><p className="mt-1">Tutup Zoom/Meet lalu coba lagi.</p></div>;
+      case "error": return <div className="mt-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm max-w-lg text-center"><p className="font-semibold">Error Kamera</p><p className="mt-1">{scanError || "Gagal memulai kamera."}</p></div>;
+      default: return null;
     }
   };
 
@@ -498,16 +361,34 @@ export default function AdminPanel() {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Shield className="w-6 h-6 text-primary" /> Admin Panel
-          </h1>
+          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2"><Shield className="w-6 h-6 text-primary" /> Admin Panel</h1>
           <div className="flex items-center gap-3">
             {user && <NotificationBell userId={user.id} />}
             <span className="text-sm text-gray-500 hidden md:inline">{user?.nama_lengkap}</span>
+            <button type="button" onClick={() => setShowAdminSettings(true)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400" title="Pengaturan Admin"><UserCog className="w-4 h-4" /></button>
             <button type="button" onClick={logout} className="p-2 hover:bg-red-50 text-gray-400 hover:text-danger rounded-lg"><LogOut className="w-4 h-4" /></button>
           </div>
         </div>
       </header>
+
+      {/* Admin Settings Modal */}
+      {showAdminSettings && (
+        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Lock className="w-5 h-5 text-primary" />Pengaturan Admin</h3>
+            {adminPwMsg && <div className={`mb-4 p-2 rounded text-sm ${adminPwMsg.startsWith("Error") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{adminPwMsg}</div>}
+            <form onSubmit={handleAdminSelfChange} className="space-y-3">
+              <div><label className="block text-sm font-medium text-gray-700">Username Baru (kosongkan jika tidak diubah)</label><input type="text" className="input" value={adminPwData.newUsername} onChange={(e) => setAdminPwData({ ...adminPwData, newUsername: e.target.value })} /></div>
+              <div><label className="block text-sm font-medium text-gray-700">Password Lama <span className="text-danger">*</span></label><input type="password" className="input" value={adminPwData.oldPassword} onChange={(e) => setAdminPwData({ ...adminPwData, oldPassword: e.target.value })} required /></div>
+              <div><label className="block text-sm font-medium text-gray-700">Password Baru (min 6, kosongkan jika tidak diubah)</label><input type="password" className="input" value={adminPwData.newPassword} onChange={(e) => setAdminPwData({ ...adminPwData, newPassword: e.target.value })} /></div>
+              <div className="flex gap-2 pt-2">
+                <button type="submit" className="btn-primary flex-1">Simpan Perubahan</button>
+                <button type="button" onClick={() => { setShowAdminSettings(false); setAdminPwMsg(""); }} className="btn-secondary">Tutup</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="flex flex-wrap gap-2 mb-6">
@@ -516,13 +397,10 @@ export default function AdminPanel() {
             { id: "absensi", label: "Scan Absensi", icon: QrCode },
             { id: "requests", label: `Requests (${stats.pending_requests})`, icon: Bell },
             { id: "users", label: "Users", icon: Users },
-            { id: "files", label: "Files & DB", icon: FolderOpen },
+            { id: "files", label: "Files & DB", icon: FileJson },
             { id: "appeals", label: "Banding", icon: MessageSquare },
           ].map((tab) => (
-            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab.id ? "bg-primary text-white" : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
-              }`}>
+            <button type="button" key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab.id ? "bg-primary text-white" : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"}`}>
               <tab.icon className="w-4 h-4" />{tab.label}
             </button>
           ))}
@@ -550,10 +428,20 @@ export default function AdminPanel() {
                 <h3 className="text-lg font-semibold mb-4">Auto Accept</h3>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">{settings?.auto_accept_new_accounts ? "Aktif" : "Nonaktif"}</span>
-                  <button type="button" onClick={toggleAutoAccept} className={`px-4 py-2 rounded-lg font-medium ${settings?.auto_accept_new_accounts ? "bg-green-500 text-white" : "bg-gray-200 text-gray-700"}`}>
-                    {settings?.auto_accept_new_accounts ? "Matikan" : "Nyalakan"}
-                  </button>
+                  <button type="button" onClick={toggleAutoAccept} className={`px-4 py-2 rounded-lg font-medium ${settings?.auto_accept_new_accounts ? "bg-green-500 text-white" : "bg-gray-200 text-gray-700"}`}>{settings?.auto_accept_new_accounts ? "Matikan" : "Nyalakan"}</button>
                 </div>
+              </div>
+            </div>
+            {/* Download Section */}
+            <div className="card">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Download className="w-5 h-5 text-primary" />Download Log Kehadiran</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button type="button" onClick={() => downloadCSV()} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileSpreadsheet className="w-4 h-4" />CSV Semua</button>
+                <button type="button" onClick={() => downloadCSV("teknik")} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileSpreadsheet className="w-4 h-4" />CSV Teknik</button>
+                <button type="button" onClick={() => downloadCSV("nonteknik")} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileSpreadsheet className="w-4 h-4" />CSV Non-Teknik</button>
+                <button type="button" onClick={() => downloadJSON()} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileJson className="w-4 h-4" />JSON Semua</button>
+                <button type="button" onClick={() => downloadJSON("teknik")} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileJson className="w-4 h-4" />JSON Teknik</button>
+                <button type="button" onClick={() => downloadJSON("nonteknik")} className="btn-secondary flex items-center justify-center gap-2 text-sm"><FileJson className="w-4 h-4" />JSON Non-Teknik</button>
               </div>
             </div>
           </div>
@@ -563,81 +451,35 @@ export default function AdminPanel() {
           <div className="space-y-6">
             <div className="card">
               <div className="flex flex-wrap items-end gap-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label>
-                  <input type="date" className="input" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); loadAll(); }} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kelas</label>
-                  <select className="select" value={selectedKelas} onChange={(e) => { setSelectedKelas(e.target.value); loadAll(); }}>
-                    <option value="all">Semua</option>
-                    <option value="teknik">Teknik</option>
-                    <option value="nonteknik">Non-Teknik</option>
-                  </select>
-                </div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Tanggal</label><input type="date" className="input" value={selectedDate} onChange={(e) => { setSelectedDate(e.target.value); loadAll(); }} /></div>
+                <div><label className="block text-sm font-medium text-gray-700 mb-1">Kelas</label><select className="select" value={selectedKelas} onChange={(e) => { setSelectedKelas(e.target.value); loadAll(); }}><option value="all">Semua</option><option value="teknik">Teknik</option><option value="nonteknik">Non-Teknik</option><option value="keduanya">Keduanya</option></select></div>
               </div>
-
               <div className="flex flex-col items-center mb-6 space-y-4">
                 <div className="w-full max-w-md">
-                  {/* Scanner div: ALWAYS rendered so Html5Qrcode can find it */}
-                  <div 
-                    id="admin-qr-scanner" 
-                    className={`rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black transition-all ${cameraStatus === "scanning" ? "opacity-100" : "opacity-0 h-0 min-h-0 overflow-hidden border-0"}`}
-                  >
-                    <p className="text-white text-sm">Memuat kamera...</p>
-                  </div>
-                  {cameraStatus === "scanning" && (
-                    <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2">
-                      <CameraOff className="w-4 h-4" />Stop Kamera
-                    </button>
-                  )}
+                  <div id="admin-qr-scanner" className={`rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black transition-all ${cameraStatus === "scanning" ? "opacity-100" : "opacity-0 h-0 min-h-0 overflow-hidden border-0"}`}><p className="text-white text-sm">Memuat kamera...</p></div>
+                  {cameraStatus === "scanning" && <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2"><CameraOff className="w-4 h-4" />Stop Kamera</button>}
                   {cameraStatus !== "scanning" && (
                     <>
-                      <button type="button" onClick={checkAndStartCamera} disabled={cameraStatus === "checking"} className="btn-primary flex items-center gap-2 text-lg px-8 py-4 disabled:opacity-50">
-                        {cameraStatus === "checking" ? (
-                          <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Memeriksa kamera...</>
-                        ) : (
-                          <><Camera className="w-5 h-5" />Aktifkan Kamera & Scan QR</>
-                        )}
+                      <div className="mb-3"><label className="block text-sm font-medium text-gray-700 mb-1">Scan Untuk Kelas</label><select className="select" value={scanKelas} onChange={(e) => setScanKelas(e.target.value as any)}><option value="teknik">Teknik</option><option value="nonteknik">Non-Teknik</option></select></div>
+                      <button type="button" onClick={checkAndStartCamera} disabled={cameraStatus === "checking"} className="w-full btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
+                        {cameraStatus === "checking" ? <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Memeriksa...</> : <><Camera className="w-5 h-5" />Aktifkan Kamera & Scan QR</>}
                       </button>
                       <div className="text-center mt-3">
                         <p className="text-sm text-gray-400 mb-2">— atau —</p>
-                        <label className="btn-secondary flex items-center gap-2 cursor-pointer">
-                          <Upload className="w-4 h-4" />Upload Gambar QR
-                          <input type="file" accept="image/*" className="hidden" onChange={handleFileScan} />
-                        </label>
+                        <label className="btn-secondary flex items-center justify-center gap-2 cursor-pointer"><Upload className="w-4 h-4" />Upload Gambar QR<input type="file" accept="image/*" className="hidden" onChange={handleFileScan} /></label>
                       </div>
                     </>
                   )}
+                  {cameraBanner()}
+                  {scanResult && <div className={`mt-4 p-4 rounded-lg ${scanResult.error ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{scanResult.error ? `Error: ${scanResult.error}` : `✓ ${scanResult.user.nama_lengkap} (${scanResult.user.kelas}) - ${scanResult.status === "success" ? "Berhasil" : scanResult.status}`}</div>}
                 </div>
-
-                {cameraBanner()}
-
-                {scanResult && (
-                  <div className={`mt-4 p-4 rounded-lg ${scanResult.error ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
-                    {scanResult.error ? `Error: ${scanResult.error}` : `✓ ${scanResult.user.nama_lengkap} (${scanResult.user.kelas}) - ${scanResult.status === "already_scanned" ? "Sudah absen" : "Berhasil"}`}
-                  </div>
-                )}
               </div>
             </div>
             <div className="card">
               <h3 className="text-lg font-semibold mb-4">Daftar Absensi {selectedDate}</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50"><tr><th className="text-left p-3 font-medium">Nama</th><th className="text-left p-3 font-medium">Kelas</th><th className="text-left p-3 font-medium">Status</th></tr></thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {absensiToday.map((a) => (
-                      <tr key={a.user_id} className="hover:bg-gray-50">
-                        <td className="p-3">{a.nama_lengkap}</td>
-                        <td className="p-3 capitalize">{a.kelas} {a.sub_kelas ? `(${a.sub_kelas})` : ""}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            a.status === "hadir" ? "bg-green-100 text-green-700" : a.status === "izin" ? "bg-yellow-100 text-yellow-700" : a.status === "sakit" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"
-                          }`}>{a.status}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3 font-medium">Nama</th><th className="text-left p-3 font-medium">Kelas</th><th className="text-left p-3 font-medium">Status</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100">{absensiToday.map((a) => (<tr key={a.user_id} className="hover:bg-gray-50"><td className="p-3">{a.nama_lengkap}</td><td className="p-3 capitalize">{a.kelas}</td><td className="p-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${a.status === "hadir" ? "bg-green-100 text-green-700" : a.status === "izin" ? "bg-yellow-100 text-yellow-700" : a.status === "sakit" ? "bg-blue-100 text-blue-700" : "bg-red-100 text-red-700"}`}>{a.status}</span></td></tr>))}</tbody>
                 </table>
               </div>
             </div>
@@ -648,32 +490,45 @@ export default function AdminPanel() {
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Daftar Request</h3>
             <div className="space-y-3">
-              {requests.length === 0 ? (
-                <p className="text-gray-400 text-center py-8">Tidak ada request</p>
-              ) : (
-                requests.map((req) => (
-                  <div key={req.id} className="border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${req.status === "pending" ? "bg-yellow-100 text-yellow-700" : req.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{req.status}</span>
-                          <span className="text-sm font-medium capitalize">{req.type}</span>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">{req.data?.nama_lengkap || req.data?.username || "User"}</p>
-                        {req.type === "izin" && <p className="text-xs text-gray-500 mt-1">{req.data.jenis}: {req.data.keterangan} ({req.data.tanggal})</p>}
-                        {req.type === "username_change" && <p className="text-xs text-gray-500 mt-1">New: {req.data.new_username}</p>}
+              {requests.length === 0 ? <p className="text-gray-400 text-center py-8">Tidak ada request</p> : requests.map((req) => (
+                <div key={req.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${req.status === "pending" ? "bg-yellow-100 text-yellow-700" : req.status === "approved" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{req.status}</span>
+                        <span className="text-sm font-medium capitalize">{req.type.replace(/_/g, " ")}</span>
                       </div>
-                      {req.status === "pending" && (
-                        <div className="flex gap-2">
-                          <button type="button" onClick={() => handleRequest(req.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
-                          <button type="button" onClick={() => { const reason = prompt("Alasan penolakan:"); if (reason) handleRequest(req.id, "reject", reason); }} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
+                      <p className="text-sm text-gray-600 mt-1">{req.data?.nama_lengkap || req.data?.username || "User"} (ID: {req.user_id})</p>
+                      {/* Show old vs new for password/username/profile */}
+                      {req.type === "password_reset" && (
+                        <div className="mt-2 text-xs bg-gray-50 rounded p-2 space-y-1">
+                          <p><span className="text-gray-500">Password Hash Lama:</span> <code className="text-xs break-all">{req.data.old_password_hash?.slice(0, 20)}...</code></p>
+                          <p><span className="text-gray-500">Password Hash Baru:</span> <code className="text-xs break-all">{req.data.new_password_hash?.slice(0, 20)}...</code></p>
                         </div>
                       )}
+                      {req.type === "username_change" && (
+                        <div className="mt-2 text-xs bg-gray-50 rounded p-2"><p><span className="text-gray-500">Username Baru:</span> <b>{req.data.new_username}</b></p></div>
+                      )}
+                      {req.type === "profile_change" && (
+                        <div className="mt-2 text-xs bg-gray-50 rounded p-2 space-y-1">
+                          <p><span className="text-gray-500">Nama Lama:</span> {req.data.old_nama_lengkap}</p>
+                          <p><span className="text-gray-500">Nama Baru:</span> <b>{req.data.new_nama_lengkap}</b></p>
+                          <p><span className="text-gray-500">Username Lama:</span> {req.data.old_username}</p>
+                          <p><span className="text-gray-500">Username Baru:</span> <b>{req.data.new_username}</b></p>
+                        </div>
+                      )}
+                      {req.type === "izin" && <p className="text-xs text-gray-500 mt-1">{req.data.jenis}: {req.data.keterangan} ({req.data.tanggal})</p>}
                     </div>
-                    {req.admin_notes && <p className="text-xs text-gray-400 mt-2">Note: {req.admin_notes}</p>}
+                    {req.status === "pending" && (
+                      <div className="flex gap-2 ml-4">
+                        <button type="button" onClick={() => handleRequest(req.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => { const reason = prompt("Alasan penolakan:"); if (reason) handleRequest(req.id, "reject", reason); }} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
+                      </div>
+                    )}
                   </div>
-                ))
-              )}
+                  {req.admin_notes && <p className="text-xs text-gray-400 mt-2">Note: {req.admin_notes}</p>}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -682,27 +537,8 @@ export default function AdminPanel() {
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Daftar Users</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50"><tr><th className="text-left p-3 font-medium">Nama</th><th className="text-left p-3 font-medium">Username</th><th className="text-left p-3 font-medium">Kelas</th><th className="text-left p-3 font-medium">Status</th><th className="text-left p-3 font-medium">Aksi</th></tr></thead>
-                <tbody className="divide-y divide-gray-100">
-                  {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-gray-50">
-                      <td className="p-3">{u.nama_lengkap}</td>
-                      <td className="p-3">{u.username}</td>
-                      <td className="p-3 capitalize">{u.kelas} {u.sub_kelas ? `(${u.sub_kelas})` : ""}</td>
-                      <td className="p-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${u.status === "active" ? "bg-green-100 text-green-700" : u.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>{u.status}</span>
-                      </td>
-                      <td className="p-3">
-                        <select className="text-xs border border-gray-300 rounded px-2 py-1" value={u.status} onChange={(e) => updateUserStatus(u.id, e.target.value)}>
-                          <option value="active">Active</option>
-                          <option value="pending">Pending</option>
-                          <option value="suspended">Suspended</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+              <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3 font-medium">Nama</th><th className="text-left p-3 font-medium">Username</th><th className="text-left p-3 font-medium">Kelas</th><th className="text-left p-3 font-medium">Status</th><th className="text-left p-3 font-medium">Aksi</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">{users.map((u) => (<tr key={u.id} className="hover:bg-gray-50"><td className="p-3">{u.nama_lengkap}</td><td className="p-3">{u.username}</td><td className="p-3 capitalize">{u.kelas}</td><td className="p-3"><span className={`px-2 py-1 rounded-full text-xs font-medium ${u.status === "active" ? "bg-green-100 text-green-700" : u.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>{u.status}</span></td><td className="p-3"><select className="text-xs border border-gray-300 rounded px-2 py-1" value={u.status} onChange={(e) => updateUserStatus(u.id, e.target.value)}><option value="active">Active</option><option value="pending">Pending</option><option value="suspended">Suspended</option></select></td></tr>))}</tbody>
               </table>
             </div>
           </div>
@@ -713,23 +549,8 @@ export default function AdminPanel() {
         {activeTab === "appeals" && (
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Bandingan</h3>
-            {appeals.length === 0 ? (
-              <p className="text-gray-400 text-center py-4">Tidak ada banding</p>
-            ) : (
-              <div className="space-y-2">
-                {appeals.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="font-medium text-sm">{a.alasan}</p>
-                      <p className="text-xs text-gray-500">{a.request_id}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => handleAppeal(a.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button>
-                      <button type="button" onClick={() => handleAppeal(a.id, "reject", "Ditolak admin")} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            {appeals.length === 0 ? <p className="text-gray-400 text-center py-4">Tidak ada banding</p> : (
+              <div className="space-y-2">{appeals.map((a) => (<div key={a.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><p className="font-medium text-sm">{a.alasan}</p><p className="text-xs text-gray-500">{a.request_id}</p></div><div className="flex gap-2"><button type="button" onClick={() => handleAppeal(a.id, "approve")} className="p-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200"><CheckCircle className="w-4 h-4" /></button><button type="button" onClick={() => handleAppeal(a.id, "reject", "Ditolak admin")} className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"><XCircle className="w-4 h-4" /></button></div></div>))}</div>
             )}
           </div>
         )}
@@ -755,10 +576,7 @@ import QRDisplay from "@/components/QRDisplay";
 import MateriExplorer from "@/components/MateriExplorer";
 import IzinForm from "@/components/IzinForm";
 import NotificationBell from "@/components/NotificationBell";
-import {
-  LogOut, User, Settings, CheckCircle, XCircle, Clock, AlertCircle,
-  MessageSquare, Lock, Edit3, BookOpen, QrCode
-} from "lucide-react";
+import { LogOut, User, Settings, CheckCircle, XCircle, Clock, AlertCircle, MessageSquare, Lock, Edit3, BookOpen, QrCode } from "lucide-react";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -768,10 +586,13 @@ export default function Dashboard() {
   const [materiFiles, setMateriFiles] = useState<any[]>([]);
   const [activeSection, setActiveSection] = useState<"dashboard" | "settings">("dashboard");
   const [loading, setLoading] = useState(true);
-  const [newPassword, setNewPassword] = useState("");
-  const [newUsername, setNewUsername] = useState("");
   const [requestMsg, setRequestMsg] = useState("");
   const [dbUser, setDbUser] = useState<any>(null);
+
+  // Profile modal state
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileData, setProfileData] = useState({ nama_lengkap: "", username: "", newPassword: "" });
+  const [profileMsg, setProfileMsg] = useState("");
 
   useEffect(() => {
     if (!user) { router.push("/login/"); return; }
@@ -785,75 +606,58 @@ export default function Dashboard() {
       await refreshUser();
       const u = await db.getUserById(user.id);
       setDbUser(u);
+      setProfileData({ nama_lengkap: u?.nama_lengkap || "", username: u?.username || "", newPassword: "" });
       const absensi = await db.getAbsensi(user.id);
       const files = await db.getMateriList();
       const settings = await db.getSettings();
       const records = absensi.records;
-      const stats = {
-        total_hadir: records.filter((r) => r.status === "hadir").length,
-        total_izin: records.filter((r) => r.status === "izin").length,
-        total_sakit: records.filter((r) => r.status === "sakit").length,
-        total_alpha: records.filter((r) => r.status === "alpha").length,
-      };
-      const hm: Record<string, string> = {};
-      records.forEach((r) => { hm[r.date] = r.status; });
+      const stats = { total_hadir: records.filter((r) => r.status === "hadir").length, total_izin: records.filter((r) => r.status === "izin").length, total_sakit: records.filter((r) => r.status === "sakit").length, total_alpha: records.filter((r) => r.status === "alpha").length };
+      const hm: Record<string, string> = {}; records.forEach((r) => { hm[r.date] = r.status; });
       setData({ stats, records: records.slice(-50), settings });
       setHeatmap(hm);
       setMateriFiles(files.map(({ blob, ...rest }) => rest));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
   };
 
   const handleRequestPassword = async () => {
-    if (!newPassword || newPassword.length < 6) return;
+    if (!user) return;
+    const pw = profileData.newPassword;
+    if (!pw || pw.length < 6) { setRequestMsg("Password min 6 karakter"); return; }
     try {
+      const newHash = await hashPassword(pw);
+      await db.createRequest({ type: "password_reset", user_id: user.id, status: "pending", data: { new_password_hash: newHash, old_password_hash: dbUser?.password_hash }, admin_notes: "", handled_at: null });
+      await db.addNotification(user.id, "Request Ganti Password", "Permintaan ganti password telah dikirim ke admin.", "warning");
+      setRequestMsg("Request terkirim. Hubungi admin untuk approval.");
+      setProfileData({ ...profileData, newPassword: "" });
+    } catch (err: any) { setRequestMsg("Error: " + err.message); }
+  };
+
+  const handleRequestProfile = async () => {
+    if (!user || !dbUser) return;
+    try {
+      if (profileData.username === dbUser.username && profileData.nama_lengkap === dbUser.nama_lengkap) { setProfileMsg("Tidak ada perubahan"); return; }
+      if (profileData.username !== dbUser.username) {
+        const existing = await db.getUserByUsername(profileData.username);
+        if (existing) { setProfileMsg("Username sudah digunakan"); return; }
+      }
       await db.createRequest({
-        type: "password_reset", user_id: user!.id, status: "pending",
-        data: { new_password_hash: await hashPassword(newPassword) },
+        type: "profile_change", user_id: user.id, status: "pending",
+        data: { old_nama_lengkap: dbUser.nama_lengkap, new_nama_lengkap: profileData.nama_lengkap, old_username: dbUser.username, new_username: profileData.username },
         admin_notes: "", handled_at: null,
       });
-      await db.addNotification(user!.id, "Request Ganti Password", "Permintaan ganti password telah dikirim ke admin. Hubungi admin untuk persetujuan.", "warning");
-      setRequestMsg("Request ganti password terkirim. Hubungi admin untuk approval.");
-      setNewPassword("");
-    } catch (err: any) {
-      setRequestMsg("Error: " + err.message);
-    }
+      await db.addNotification(user.id, "Request Ganti Profil", "Permintaan ubah nama/username dikirim ke admin.", "warning");
+      setProfileMsg("Request terkirim. Tunggu approval admin.");
+    } catch (err: any) { setProfileMsg("Error: " + err.message); }
   };
 
-  const handleRequestUsername = async () => {
-    if (!newUsername || newUsername.length < 3) return;
-    try {
-      const existing = await db.getUserByUsername(newUsername);
-      if (existing) { setRequestMsg("Username sudah digunakan"); return; }
-      await db.createRequest({
-        type: "username_change", user_id: user!.id, status: "pending",
-        data: { new_username: newUsername },
-        admin_notes: "", handled_at: null,
-      });
-      await db.addNotification(user!.id, "Request Ganti Username", `Permintaan ganti username ke "${newUsername}" telah dikirim ke admin.`, "warning");
-      setRequestMsg("Request ganti username terkirim. Hubungi admin untuk approval.");
-      setNewUsername("");
-    } catch (err: any) {
-      setRequestMsg("Error: " + err.message);
-    }
+  const getDownloadUrl = async (id: string) => { const blob = await db.getMateriBlob(id); return blob ? URL.createObjectURL(blob) : null; };
+
+  const handleLogout = async () => {
+    try { await logout(); } catch (err) { console.error("Logout error:", err); }
   };
 
-  const getDownloadUrl = async (id: string) => {
-    const blob = await db.getMateriBlob(id);
-    return blob ? URL.createObjectURL(blob) : null;
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
+  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div></div>;
   const stats = data?.stats || { total_hadir: 0, total_izin: 0, total_sakit: 0, total_alpha: 0 };
 
   return (
@@ -863,53 +667,53 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-900">AbsensiKu</h1>
             <nav className="hidden md:flex gap-1">
-              <button onClick={() => setActiveSection("dashboard")} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === "dashboard" ? "bg-blue-50 text-primary" : "text-gray-600 hover:bg-gray-100"}`}>Dashboard</button>
-              <button onClick={() => setActiveSection("settings")} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === "settings" ? "bg-blue-50 text-primary" : "text-gray-600 hover:bg-gray-100"}`}>Pengaturan</button>
+              <button type="button" onClick={() => setActiveSection("dashboard")} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === "dashboard" ? "bg-blue-50 text-primary" : "text-gray-600 hover:bg-gray-100"}`}>Dashboard</button>
+              <button type="button" onClick={() => setActiveSection("settings")} className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeSection === "settings" ? "bg-blue-50 text-primary" : "text-gray-600 hover:bg-gray-100"}`}>Pengaturan</button>
             </nav>
           </div>
           <div className="flex items-center gap-3">
             {user && <NotificationBell userId={user.id} />}
             <div className="flex items-center gap-2 pl-3 border-l border-gray-200">
-              <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-sm">{user?.nama_lengkap?.charAt(0) || "U"}</div>
+              <button type="button" onClick={() => setShowProfile(true)} className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-sm hover:bg-primary/20 transition-colors">{user?.nama_lengkap?.charAt(0) || "U"}</button>
               <div className="hidden md:block">
                 <p className="text-sm font-medium">{user?.nama_lengkap}</p>
-                <p className="text-xs text-gray-500 capitalize">{user?.kelas} {user?.sub_kelas ? `(${user.sub_kelas})` : ""}</p>
+                <p className="text-xs text-gray-500 capitalize">{user?.kelas}</p>
               </div>
-              <button onClick={logout} className="p-2 hover:bg-red-50 text-gray-400 hover:text-danger rounded-lg"><LogOut className="w-4 h-4" /></button>
+              <button type="button" onClick={handleLogout} className="p-2 hover:bg-red-50 text-gray-400 hover:text-danger rounded-lg"><LogOut className="w-4 h-4" /></button>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Profile Modal */}
+      {showProfile && (
+        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><User className="w-5 h-5 text-primary" />Profil Saya</h3>
+            {profileMsg && <div className={`mb-4 p-2 rounded text-sm ${profileMsg.startsWith("Error") || profileMsg.startsWith("Tidak") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{profileMsg}</div>}
+            <div className="space-y-3">
+              <div><label className="block text-sm font-medium text-gray-700">Nama Lengkap</label><input type="text" className="input" value={profileData.nama_lengkap} onChange={(e) => setProfileData({ ...profileData, nama_lengkap: e.target.value })} /></div>
+              <div><label className="block text-sm font-medium text-gray-700">Username</label><input type="text" className="input" value={profileData.username} onChange={(e) => setProfileData({ ...profileData, username: e.target.value })} /></div>
+              <div><label className="block text-sm font-medium text-gray-700">Password Baru (Request ke Admin)</label><input type="password" className="input" value={profileData.newPassword} onChange={(e) => setProfileData({ ...profileData, newPassword: e.target.value })} placeholder="Min 6 karakter, kosongkan jika tidak diubah" /></div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={handleRequestProfile} className="btn-primary flex-1">Request Ubah Profil</button>
+                {profileData.newPassword.length >= 6 && <button type="button" onClick={handleRequestPassword} className="btn-secondary">Request Ganti PW</button>}
+                <button type="button" onClick={() => { setShowProfile(false); setProfileMsg(""); }} className="btn-secondary">Tutup</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeSection === "dashboard" ? (
           <div className="grid lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="card p-4 border-l-4 border-green-500">
-                  <div className="flex items-center justify-between">
-                    <div><p className="text-sm text-gray-500">Hadir</p><p className="text-2xl font-bold text-gray-900">{stats.total_hadir}</p></div>
-                    <CheckCircle className="w-8 h-8 text-green-500 opacity-20" />
-                  </div>
-                </div>
-                <div className="card p-4 border-l-4 border-yellow-500">
-                  <div className="flex items-center justify-between">
-                    <div><p className="text-sm text-gray-500">Izin</p><p className="text-2xl font-bold text-gray-900">{stats.total_izin}</p></div>
-                    <Clock className="w-8 h-8 text-yellow-500 opacity-20" />
-                  </div>
-                </div>
-                <div className="card p-4 border-l-4 border-blue-500">
-                  <div className="flex items-center justify-between">
-                    <div><p className="text-sm text-gray-500">Sakit</p><p className="text-2xl font-bold text-gray-900">{stats.total_sakit}</p></div>
-                    <AlertCircle className="w-8 h-8 text-blue-500 opacity-20" />
-                  </div>
-                </div>
-                <div className="card p-4 border-l-4 border-red-500">
-                  <div className="flex items-center justify-between">
-                    <div><p className="text-sm text-gray-500">Alpha</p><p className="text-2xl font-bold text-gray-900">{stats.total_alpha}</p></div>
-                    <XCircle className="w-8 h-8 text-red-500 opacity-20" />
-                  </div>
-                </div>
+                <div className="card p-4 border-l-4 border-green-500"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-500">Hadir</p><p className="text-2xl font-bold text-gray-900">{stats.total_hadir}</p></div><CheckCircle className="w-8 h-8 text-green-500 opacity-20" /></div></div>
+                <div className="card p-4 border-l-4 border-yellow-500"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-500">Izin</p><p className="text-2xl font-bold text-gray-900">{stats.total_izin}</p></div><Clock className="w-8 h-8 text-yellow-500 opacity-20" /></div></div>
+                <div className="card p-4 border-l-4 border-blue-500"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-500">Sakit</p><p className="text-2xl font-bold text-gray-900">{stats.total_sakit}</p></div><AlertCircle className="w-8 h-8 text-blue-500 opacity-20" /></div></div>
+                <div className="card p-4 border-l-4 border-red-500"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-500">Alpha</p><p className="text-2xl font-bold text-gray-900">{stats.total_alpha}</p></div><XCircle className="w-8 h-8 text-red-500 opacity-20" /></div></div>
               </div>
               <HeatMap data={heatmap} />
               <MateriExplorer files={materiFiles} getDownloadUrl={getDownloadUrl} />
@@ -917,10 +721,7 @@ export default function Dashboard() {
             <div className="space-y-6">
               {dbUser && <QRDisplay userId={dbUser.id} qrSecret={dbUser.qr_secret} />}
               <IzinForm userId={user!.id} onSuccess={loadData} />
-              <div className="card bg-blue-50 border-blue-200">
-                <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2"><MessageSquare className="w-4 h-4" />Kontak Admin</h4>
-                <p className="text-sm text-blue-700">Untuk request ganti password/username atau bantuan lainnya, silakan hubungi admin.</p>
-              </div>
+              <div className="card bg-blue-50 border-blue-200"><h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2"><MessageSquare className="w-4 h-4" />Kontak Admin</h4><p className="text-sm text-blue-700">Untuk bantuan, hubungi admin.</p></div>
             </div>
           </div>
         ) : (
@@ -931,19 +732,8 @@ export default function Dashboard() {
               <div className="space-y-6">
                 <div className="border-b border-gray-100 pb-6">
                   <h4 className="font-medium mb-3 flex items-center gap-2"><Lock className="w-4 h-4 text-gray-500" />Ganti Password</h4>
-                  <div className="flex gap-3">
-                    <input type="password" className="input flex-1" placeholder="Password baru (min 6 karakter)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                    <button onClick={handleRequestPassword} className="btn-primary whitespace-nowrap">Request</button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">*Perlu approval admin. Password tidak langsung berubah.</p>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-3 flex items-center gap-2"><Edit3 className="w-4 h-4 text-gray-500" />Ganti Username</h4>
-                  <div className="flex gap-3">
-                    <input type="text" className="input flex-1" placeholder="Username baru" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-                    <button onClick={handleRequestUsername} className="btn-primary whitespace-nowrap">Request</button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">*1 kali per request. Jika ingin ganti lagi, request ulang setelah approval.</p>
+                  <div className="flex gap-3"><button type="button" onClick={() => setShowProfile(true)} className="btn-primary">Buka Profil untuk Request</button></div>
+                  <p className="text-xs text-gray-500 mt-2">*Perlu approval admin.</p>
                 </div>
               </div>
             </div>
@@ -966,28 +756,25 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { verifyPassword } from "@/lib/crypto";
-import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle } from "lucide-react";
+import { LogIn, UserPlus, Shield, Eye, EyeOff, AlertCircle, CheckCircle, KeyRound } from "lucide-react";
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { login, role, isLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<"login" | "register" | "admin">("login");
+  const [activeTab, setActiveTab] = useState<"login" | "register" | "admin" | "forgot">("login");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Read search params ONCE on mount to avoid infinite loops
   useEffect(() => {
     const tab = searchParams.get("tab");
     const admin = searchParams.get("admin");
     if (tab === "register") setActiveTab("register");
     if (admin === "1") setActiveTab("admin");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Redirect if already logged in (only when auth check is done)
   useEffect(() => {
     if (!isLoading && role) {
       router.push(role === "admin" ? "/admin/" : "/dashboard/");
@@ -995,113 +782,95 @@ function LoginContent() {
   }, [isLoading, role, router]);
 
   const [loginData, setLoginData] = useState({ username: "", password: "" });
-  const [registerData, setRegisterData] = useState({
-    username: "", password: "", nama_lengkap: "", kelas: "teknik", sub_kelas: "",
-  });
+  const [registerData, setRegisterData] = useState({ username: "", password: "", nama_lengkap: "", kelas: "teknik" });
   const [adminData, setAdminData] = useState({ username: "", password: "" });
+  const [forgotData, setForgotData] = useState({ username: "", newPassword: "" });
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setLoading(true);
     setError("");
     try {
-      console.log("[LOGIN] Starting login for", loginData.username);
       await db.init();
       const user = await db.getUserByUsername(loginData.username);
       if (!user) throw new Error("Username atau password salah");
-      if (user.locked_until && new Date() < new Date(user.locked_until)) {
-        throw new Error("Akun terkunci. Coba lagi nanti.");
-      }
+      if (user.locked_until && new Date() < new Date(user.locked_until)) throw new Error("Akun terkunci. Coba lagi nanti.");
       const valid = await verifyPassword(loginData.password, user.password_hash);
       if (!valid) {
         const attempts = (user.login_attempts || 0) + 1;
-        await db.updateUser(user.id, {
-          login_attempts: attempts,
-          locked_until: attempts >= 5 ? new Date(Date.now() + 30 * 60 * 1000).toISOString() : user.locked_until,
-        });
+        await db.updateUser(user.id, { login_attempts: attempts, locked_until: attempts >= 5 ? new Date(Date.now() + 30 * 60 * 1000).toISOString() : user.locked_until });
         throw new Error("Username atau password salah");
       }
       if (user.status !== "active") throw new Error(`Akun ${user.status}. Hubungi admin.`);
       await db.updateUser(user.id, { login_attempts: 0, locked_until: null, last_login: new Date().toISOString() });
       const session = await db.createSession(user.id, user.role);
-      login(session.token, {
-        id: user.id, username: user.username, nama_lengkap: user.nama_lengkap,
-        kelas: user.kelas, sub_kelas: user.sub_kelas, role: user.role,
-      }, user.role);
-      console.log("[LOGIN] Success, redirecting...");
+      login(session.token, { id: user.id, username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas, role: user.role }, user.role);
       router.push(user.role === "admin" ? "/admin/" : "/dashboard/");
-    } catch (err: any) {
-      console.error("[LOGIN] Error:", err);
-      setError(err?.message || "Terjadi kesalahan saat login");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err: any) { setError(err?.message || "Terjadi kesalahan"); }
+    finally { setLoading(false); }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setLoading(true);
     setError("");
     setSuccess("");
     try {
-      console.log("[REGISTER] Starting registration for", registerData.username);
       await db.init();
-      const existing = await db.getUserByUsername(registerData.username);
-      if (existing) throw new Error("Username sudah digunakan");
+      if (await db.getUserByUsername(registerData.username)) throw new Error("Username sudah digunakan");
       const user = await db.createUser(registerData);
-      console.log("[REGISTER] User created:", user.id);
       const settings = await db.getSettings();
       if (settings.auto_accept_new_accounts) {
         await db.updateUser(user.id, { status: "active" });
         await db.addNotification(user.id, "Akun Diterima", "Akun Anda otomatis diterima.", "success");
         setSuccess("Pendaftaran berhasil! Akun langsung aktif. Silakan login.");
       } else {
-        await db.createRequest({
-          type: "new_account", user_id: user.id, status: "pending",
-          data: { username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas, sub_kelas: user.sub_kelas },
-          admin_notes: "", handled_at: null,
-        });
+        await db.createRequest({ type: "new_account", user_id: user.id, status: "pending", data: { username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas }, admin_notes: "", handled_at: null });
         setSuccess("Pendaftaran berhasil! Menunggu persetujuan admin.");
       }
-      setRegisterData({ username: "", password: "", nama_lengkap: "", kelas: "teknik", sub_kelas: "" });
-      console.log("[REGISTER] Done");
-    } catch (err: any) {
-      console.error("[REGISTER] Error:", err);
-      setError(err?.message || "Terjadi kesalahan saat mendaftar");
-    } finally {
-      setLoading(false);
-    }
+      setRegisterData({ username: "", password: "", nama_lengkap: "", kelas: "teknik" });
+    } catch (err: any) { setError(err?.message || "Terjadi kesalahan"); }
+    finally { setLoading(false); }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
     setLoading(true);
     setError("");
     try {
-      console.log("[ADMIN] Starting admin login");
       await db.init();
       const user = await db.getUserByUsername(adminData.username);
       if (!user || user.role !== "admin") throw new Error("Invalid credentials");
-      if (user.status !== "active") throw new Error("Akun tidak aktif. Hubungi super admin.");
+      if (user.status !== "active") throw new Error("Akun tidak aktif.");
       const valid = await verifyPassword(adminData.password, user.password_hash);
       if (!valid) throw new Error("Invalid credentials");
       await db.updateUser(user.id, { last_login: new Date().toISOString() });
       const session = await db.createSession(user.id, "admin");
-      login(session.token, {
-        id: user.id, username: user.username, nama_lengkap: user.nama_lengkap,
-        kelas: user.kelas, role: user.role,
-      }, "admin");
-      console.log("[ADMIN] Success");
+      login(session.token, { id: user.id, username: user.username, nama_lengkap: user.nama_lengkap, kelas: user.kelas, role: user.role }, "admin");
       router.push("/admin/");
-    } catch (err: any) {
-      console.error("[ADMIN] Error:", err);
-      setError(err?.message || "Terjadi kesalahan saat login admin");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err: any) { setError(err?.message || "Terjadi kesalahan"); }
+    finally { setLoading(false); }
+  };
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setSuccess("");
+    try {
+      await db.init();
+      const user = await db.getUserByUsername(forgotData.username);
+      if (!user) throw new Error("Username tidak ditemukan");
+      const newHash = await hashPassword(forgotData.newPassword);
+      await db.createRequest({
+        type: "password_reset", user_id: user.id, status: "pending",
+        data: { username: user.username, new_password_hash: newHash, old_password_hash: user.password_hash },
+        admin_notes: "", handled_at: null,
+      });
+      setSuccess("Request ganti password terkirim. Tunggu approval admin.");
+      setForgotData({ username: "", newPassword: "" });
+    } catch (err: any) { setError(err?.message || "Terjadi kesalahan"); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -1109,119 +878,92 @@ function LoginContent() {
       <div className="w-full max-w-md">
         <div className="card">
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">{activeTab === "admin" ? "Panel Admin" : "Sistem Absensi"}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{activeTab === "admin" ? "Panel Admin" : activeTab === "forgot" ? "Lupa Password" : "Sistem Absensi"}</h1>
             <p className="text-gray-500 mt-1">
               {activeTab === "login" && "Masuk ke akun Anda"}
               {activeTab === "register" && "Buat akun baru"}
               {activeTab === "admin" && "Login khusus admin"}
+              {activeTab === "forgot" && "Request ganti password"}
             </p>
           </div>
 
-          {activeTab !== "admin" && (
+          {activeTab !== "admin" && activeTab !== "forgot" && (
             <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
-              <button type="button" onClick={() => { setActiveTab("login"); setError(""); setSuccess(""); }}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "login" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Masuk</button>
-              <button type="button" onClick={() => { setActiveTab("register"); setError(""); setSuccess(""); }}
-                className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "register" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Daftar</button>
+              <button type="button" onClick={() => { setActiveTab("login"); setError(""); setSuccess(""); }} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "login" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Masuk</button>
+              <button type="button" onClick={() => { setActiveTab("register"); setError(""); setSuccess(""); }} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${activeTab === "register" ? "bg-white text-primary shadow-sm" : "text-gray-500"}`}>Daftar</button>
             </div>
           )}
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />{error}
-            </div>
-          )}
-          {success && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700 text-sm">
-              <CheckCircle className="w-4 h-4 flex-shrink-0" />{success}
-            </div>
-          )}
+          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm"><AlertCircle className="w-4 h-4 flex-shrink-0" />{error}</div>}
+          {success && <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700 text-sm"><CheckCircle className="w-4 h-4 flex-shrink-0" />{success}</div>}
 
           {activeTab === "login" && (
             <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input type="text" className="input" value={loginData.username} onChange={(e) => setLoginData({ ...loginData, username: e.target.value })} required />
-              </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Username</label><input type="text" className="input" value={loginData.username} onChange={(e) => setLoginData({ ...loginData, username: e.target.value })} required /></div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div className="relative">
                   <input type={showPassword ? "text" : "password"} className="input pr-10" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} required />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                 </div>
               </div>
-              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2" disabled={loading}>
-                <LogIn className="w-4 h-4" />{loading ? "Memuat..." : "Masuk"}
-              </button>
+              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2" disabled={loading}><LogIn className="w-4 h-4" />{loading ? "Memuat..." : "Masuk"}</button>
+              <div className="text-center">
+                <button type="button" onClick={() => { setActiveTab("forgot"); setError(""); setSuccess(""); }} className="text-sm text-primary hover:underline">Lupa password?</button>
+              </div>
             </form>
           )}
 
           {activeTab === "register" && (
             <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
-                <input type="text" className="input" value={registerData.nama_lengkap} onChange={(e) => setRegisterData({ ...registerData, nama_lengkap: e.target.value })} required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                <input type="text" className="input" value={registerData.username} onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })} required />
-              </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label><input type="text" className="input" value={registerData.nama_lengkap} onChange={(e) => setRegisterData({ ...registerData, nama_lengkap: e.target.value })} required /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Username</label><input type="text" className="input" value={registerData.username} onChange={(e) => setRegisterData({ ...registerData, username: e.target.value })} required /></div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div className="relative">
                   <input type={showPassword ? "text" : "password"} className="input pr-10" value={registerData.password} onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })} required minLength={6} />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kelas</label>
-                  <select className="select" value={registerData.kelas} onChange={(e) => setRegisterData({ ...registerData, kelas: e.target.value })}>
-                    <option value="teknik">Teknik</option>
-                    <option value="nonteknik">Non-Teknik</option>
-                    <option value="keduanya">Keduanya</option>
-                  </select>
-                </div>
-                {registerData.kelas === "teknik" && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Sub Kelas (Opsional)</label>
-                    <select className="select" value={registerData.sub_kelas} onChange={(e) => setRegisterData({ ...registerData, sub_kelas: e.target.value })}>
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                    </select>
-                  </div>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Kelas</label>
+                <select className="select" value={registerData.kelas} onChange={(e) => setRegisterData({ ...registerData, kelas: e.target.value })}>
+                  <option value="teknik">Teknik</option>
+                  <option value="nonteknik">Non-Teknik</option>
+                  <option value="keduanya">Keduanya</option>
+                </select>
               </div>
-              <button type="submit" className="w-full btn-success flex items-center justify-center gap-2" disabled={loading}>
-                <UserPlus className="w-4 h-4" />{loading ? "Mendaftar..." : "Daftar"}
-              </button>
-              <p className="text-xs text-gray-500 text-center">*Akun baru memerlukan persetujuan admin (kecuali auto-accept aktif)</p>
+              <button type="submit" className="w-full btn-success flex items-center justify-center gap-2" disabled={loading}><UserPlus className="w-4 h-4" />{loading ? "Mendaftar..." : "Daftar"}</button>
             </form>
           )}
 
           {activeTab === "admin" && (
             <form onSubmit={handleAdminLogin} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Admin Username</label>
-                <input type="text" className="input" value={adminData.username} onChange={(e) => setAdminData({ ...adminData, username: e.target.value })} required />
-              </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Admin Username</label><input type="text" className="input" value={adminData.username} onChange={(e) => setAdminData({ ...adminData, username: e.target.value })} required /></div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <div className="relative">
                   <input type={showPassword ? "text" : "password"} className="input pr-10" value={adminData.password} onChange={(e) => setAdminData({ ...adminData, password: e.target.value })} required />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
                 </div>
               </div>
-              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2" disabled={loading}>
-                <Shield className="w-4 h-4" />{loading ? "Memuat..." : "Login Admin"}
-              </button>
+              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2" disabled={loading}><Shield className="w-4 h-4" />{loading ? "Memuat..." : "Login Admin"}</button>
               <button type="button" onClick={() => setActiveTab("login")} className="w-full text-sm text-gray-500 hover:text-primary">Kembali ke login user</button>
+            </form>
+          )}
+
+          {activeTab === "forgot" && (
+            <form onSubmit={handleForgot} className="space-y-4">
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Username Akun</label><input type="text" className="input" value={forgotData.username} onChange={(e) => setForgotData({ ...forgotData, username: e.target.value })} required /></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password Baru</label>
+                <div className="relative">
+                  <input type={showPassword ? "text" : "password"} className="input pr-10" value={forgotData.newPassword} onChange={(e) => setForgotData({ ...forgotData, newPassword: e.target.value })} required minLength={6} />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
+                </div>
+              </div>
+              <button type="submit" className="w-full btn-primary flex items-center justify-center gap-2" disabled={loading}><KeyRound className="w-4 h-4" />{loading ? "Mengirim..." : "Kirim Request"}</button>
+              <button type="button" onClick={() => setActiveTab("login")} className="w-full text-sm text-gray-500 hover:text-primary">Kembali ke login</button>
             </form>
           )}
         </div>
@@ -1232,11 +974,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center"><div className="text-gray-500">Loading...</div></div>}>
       <LoginContent />
     </Suspense>
   );
@@ -2069,7 +1807,7 @@ cat > 'src/lib/db.ts' << 'EOF_FIX'
 import { generateId, hashPassword } from "./crypto";
 
 const DB_NAME = "AbsensiDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // bumped for schema changes
 
 export interface User {
   id: string;
@@ -2077,7 +1815,6 @@ export interface User {
   password_hash: string;
   nama_lengkap: string;
   kelas: "teknik" | "nonteknik" | "keduanya";
-  sub_kelas?: string;
   role: "user" | "admin";
   status: "pending" | "active" | "rejected" | "suspended";
   created_at: string;
@@ -2190,17 +1927,13 @@ class AppDB {
       };
       req.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        if (!db.objectStoreNames.contains("users")) db.createObjectStore("users", { keyPath: "id" });
-        if (!db.objectStoreNames.contains("absensi")) db.createObjectStore("absensi", { keyPath: "userId" });
-        if (!db.objectStoreNames.contains("requests")) db.createObjectStore("requests", { keyPath: "id" });
-        if (!db.objectStoreNames.contains("materi")) db.createObjectStore("materi", { keyPath: "id" });
-        if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "key" });
-        if (!db.objectStoreNames.contains("notifications")) {
-          const store = db.createObjectStore("notifications", { keyPath: "id" });
-          store.createIndex("user_id", "user_id", { unique: false });
-        }
-        if (!db.objectStoreNames.contains("appeals")) db.createObjectStore("appeals", { keyPath: "id" });
-        if (!db.objectStoreNames.contains("sessions")) db.createObjectStore("sessions", { keyPath: "token" });
+        const stores = ["users","absensi","requests","materi","settings","notifications","appeals","sessions"];
+        stores.forEach((s) => {
+          if (!db.objectStoreNames.contains(s)) {
+            const st = db.createObjectStore(s, { keyPath: s === "settings" ? "key" : s === "absensi" ? "userId" : "id" });
+            if (s === "notifications") st.createIndex("user_id", "user_id", { unique: false });
+          }
+        });
       };
     });
   }
@@ -2243,102 +1976,71 @@ class AppDB {
   }
 
   // ========== USERS ==========
-  async getUserById(id: string): Promise<User | null> {
-    return this.getOne("users", id);
-  }
-
+  async getUserById(id: string): Promise<User | null> { return this.getOne("users", id); }
   async getUserByUsername(username: string): Promise<User | null> {
     const users = await this.getAll<User>("users");
     return users.find((u) => u.username === username) || null;
   }
-
-  async createUser(data: { username: string; password: string; nama_lengkap: string; kelas: string; sub_kelas?: string }): Promise<User> {
+  async createUser(data: { username: string; password: string; nama_lengkap: string; kelas: string }): Promise<User> {
     const id = generateId("usr");
     const user: User = {
-      id,
-      username: data.username,
+      id, username: data.username,
       password_hash: await hashPassword(data.password),
       nama_lengkap: data.nama_lengkap,
       kelas: data.kelas as any,
-      sub_kelas: data.sub_kelas,
-      role: "user",
-      status: "pending",
+      role: "user", status: "pending",
       created_at: new Date().toISOString(),
-      last_login: null,
-      qr_secret: generateId("qr"),
-      login_attempts: 0,
-      locked_until: null,
+      last_login: null, qr_secret: generateId("qr"),
+      login_attempts: 0, locked_until: null,
     };
     await this.putOne("users", user);
     await this.putOne("absensi", { userId: id, records: [] });
     return user;
   }
-
   async updateUser(id: string, updates: Partial<User>): Promise<void> {
     const user = await this.getUserById(id);
     if (!user) throw new Error("User not found");
     await this.putOne("users", { ...user, ...updates });
   }
-
-  async getAllUsers(): Promise<User[]> {
-    return this.getAll<User>("users");
-  }
+  async getAllUsers(): Promise<User[]> { return this.getAll<User>("users"); }
 
   // ========== ADMINS ==========
   async ensureDefaultAdmin(): Promise<void> {
     const users = await this.getAllUsers();
-    const hasAdmin = users.some((u) => u.role === "admin");
-    if (!hasAdmin) {
-      const admin: User = {
-        id: "admin_001",
-        username: "admin",
+    if (!users.some((u) => u.role === "admin")) {
+      await this.putOne("users", {
+        id: "admin_001", username: "admin",
         password_hash: await hashPassword("admin123"),
-        nama_lengkap: "Administrator",
-        kelas: "nonteknik",
-        role: "admin",
-        status: "active",
+        nama_lengkap: "Administrator", kelas: "nonteknik",
+        role: "admin", status: "active",
         created_at: new Date().toISOString(),
-        last_login: null,
-        qr_secret: generateId("qr"),
-        login_attempts: 0,
-        locked_until: null,
-      };
-      await this.putOne("users", admin);
+        last_login: null, qr_secret: generateId("qr"),
+        login_attempts: 0, locked_until: null,
+      } as User);
     }
   }
 
   // ========== ABSENSI ==========
   async getAbsensi(userId: string): Promise<AbsensiData> {
-    const data = await this.getOne<AbsensiData>("absensi", userId);
-    return data || { userId, records: [] };
+    return (await this.getOne<AbsensiData>("absensi", userId)) || { userId, records: [] };
   }
-
   async addAbsensiRecord(userId: string, record: Omit<AbsensiRecord, "created_at">): Promise<void> {
     const data = await this.getAbsensi(userId);
     data.records.push({ ...record, created_at: new Date().toISOString() } as AbsensiRecord);
     await this.putOne("absensi", data);
   }
-
-  async saveAbsensi(absen: AbsensiData): Promise<void> {
-    await this.putOne("absensi", absen);
-  }
+  async saveAbsensi(absen: AbsensiData): Promise<void> { await this.putOne("absensi", absen); }
+  async getAllAbsensi(): Promise<AbsensiData[]> { return this.getAll<AbsensiData>("absensi"); }
 
   // ========== REQUESTS ==========
-  async getRequests(): Promise<RequestItem[]> {
-    return this.getAll("requests");
-  }
-
-  async getRequest(id: string): Promise<RequestItem | null> {
-    return this.getOne("requests", id);
-  }
-
+  async getRequests(): Promise<RequestItem[]> { return this.getAll("requests"); }
+  async getRequest(id: string): Promise<RequestItem | null> { return this.getOne("requests", id); }
   async createRequest(item: Omit<RequestItem, "id" | "created_at">): Promise<RequestItem> {
     const id = generateId("req");
     const req = { ...item, id, created_at: new Date().toISOString() };
     await this.putOne("requests", req);
     return req as RequestItem;
   }
-
   async updateRequest(id: string, updates: Partial<RequestItem>): Promise<void> {
     const req = await this.getRequest(id);
     if (!req) throw new Error("Request not found");
@@ -2350,48 +2052,33 @@ class AppDB {
     const all = await this.getAll<Notification>("notifications");
     return all.filter((n) => n.user_id === userId).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
-
   async addNotification(userId: string, title: string, message: string, notifType: Notification["type"] = "info"): Promise<void> {
     const notif: Notification = {
-      id: generateId("notif"),
-      user_id: userId,
-      title,
-      message,
-      type: notifType,
-      read: false,
-      created_at: new Date().toISOString(),
+      id: generateId("notif"), user_id: userId, title, message, type: notifType,
+      read: false, created_at: new Date().toISOString(),
     };
     await this.putOne("notifications", notif);
     const userNotifs = await this.getNotifications(userId);
     if (userNotifs.length > 50) {
-      for (const n of userNotifs.slice(50)) {
-        await this.deleteOne("notifications", n.id);
-      }
+      for (const n of userNotifs.slice(50)) await this.deleteOne("notifications", n.id);
     }
   }
-
   async markNotificationRead(id: string): Promise<void> {
     const n = await this.getOne<Notification>("notifications", id);
     if (n) await this.putOne("notifications", { ...n, read: true });
   }
 
   // ========== APPEALS ==========
-  async getAppeals(): Promise<Appeal[]> {
-    return this.getAll("appeals");
-  }
-
+  async getAppeals(): Promise<Appeal[]> { return this.getAll("appeals"); }
   async getUserAppeals(userId: string): Promise<Appeal[]> {
-    const all = await this.getAll<Appeal>("appeals");
-    return all.filter((a) => a.user_id === userId).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return (await this.getAll<Appeal>("appeals")).filter((a) => a.user_id === userId).sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
-
   async createAppeal(data: Omit<Appeal, "id">): Promise<Appeal> {
     const id = generateId("apl");
     const appeal = { ...data, id };
     await this.putOne("appeals", appeal);
     return appeal as Appeal;
   }
-
   async updateAppeal(id: string, updates: Partial<Appeal>): Promise<void> {
     const a = await this.getOne<Appeal>("appeals", id);
     if (!a) throw new Error("Appeal not found");
@@ -2402,105 +2089,71 @@ class AppDB {
   async createSession(userId: string, role: string): Promise<Session> {
     const token = generateId("tkn");
     const now = new Date();
-    const expires = new Date(now.getTime() + 24 * 60 * 60 * 1000);
     const session: Session = {
-      token,
-      user_id: userId,
-      role,
+      token, user_id: userId, role,
       created_at: now.toISOString(),
-      expires_at: expires.toISOString(),
+      expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
     };
     await this.putOne("sessions", session);
     return session;
   }
-
   async getSession(token: string): Promise<Session | null> {
     const s = await this.getOne<Session>("sessions", token);
     if (!s) return null;
-    if (new Date() > new Date(s.expires_at)) {
-      await this.deleteOne("sessions", token);
-      return null;
-    }
+    if (new Date() > new Date(s.expires_at)) { await this.deleteOne("sessions", token); return null; }
     return s;
   }
-
-  async deleteSession(token: string): Promise<void> {
-    await this.deleteOne("sessions", token);
-  }
+  async deleteSession(token: string): Promise<void> { await this.deleteOne("sessions", token); }
 
   // ========== SETTINGS ==========
   async getSettings(): Promise<AppSettings> {
     const s = await this.getOne<AppSettings>("settings", "app");
     if (s) return s;
     const defaults: AppSettings = {
-      key: "app",
-      current_week: 1,
-      total_weeks: 16,
-      semester: "Ganjil 2026",
-      auto_accept_new_accounts: false,
-      last_absen_day: null,
-      last_absen_kelas: null,
+      key: "app", current_week: 1, total_weeks: 16,
+      semester: "Ganjil 2026", auto_accept_new_accounts: false,
+      last_absen_day: null, last_absen_kelas: null,
     };
     await this.putOne("settings", defaults);
     return defaults;
   }
-
   async updateSettings(updates: Partial<AppSettings>): Promise<void> {
     const s = await this.getSettings();
     await this.putOne("settings", { ...s, ...updates });
   }
 
-  // ========== MATERI / FILE EXPLORER ==========
+  // ========== MATERI ==========
   async getMateriList(): Promise<MateriFile[]> {
-    const all = await this.getAll<MateriFile>("materi");
-    return all.sort((a, b) => a.folder.localeCompare(b.folder) || a.name.localeCompare(b.name));
+    return (await this.getAll<MateriFile>("materi")).sort((a, b) => a.folder.localeCompare(b.folder) || a.name.localeCompare(b.name));
   }
-
   async getMateriFolders(): Promise<string[]> {
     const all = await this.getMateriList();
-    const folders = new Set(all.map((m) => m.folder || "Root"));
-    return Array.from(folders).sort();
+    return Array.from(new Set(all.map((m) => m.folder || "Root"))).sort();
   }
-
   async addMateri(file: File, folder: string): Promise<MateriFile> {
     const id = generateId("mat");
     const weekMatch = folder.match(/week(\d+)/i);
     const week = weekMatch ? parseInt(weekMatch[1]) : 1;
     const materi: MateriFile = {
-      id,
-      name: file.name,
-      folder: folder || "Root",
-      week,
-      size: file.size,
-      type: file.type || "application/octet-stream",
-      blob: file,
-      uploadedAt: new Date().toISOString(),
+      id, name: file.name, folder: folder || "Root", week,
+      size: file.size, type: file.type || "application/octet-stream",
+      blob: file, uploadedAt: new Date().toISOString(),
     };
     await this.putOne("materi", materi);
     return materi;
   }
-
-  async getMateriBlob(id: string): Promise<Blob | null> {
-    const m = await this.getOne<MateriFile>("materi", id);
-    return m?.blob || null;
-  }
-
-  async deleteMateri(id: string): Promise<void> {
-    await this.deleteOne("materi", id);
-  }
-
+  async getMateriBlob(id: string): Promise<Blob | null> { return (await this.getOne<MateriFile>("materi", id))?.blob || null; }
+  async deleteMateri(id: string): Promise<void> { await this.deleteOne("materi", id); }
   async renameMateri(id: string, newName: string): Promise<void> {
     const m = await this.getOne<MateriFile>("materi", id);
     if (!m) throw new Error("File not found");
     await this.putOne("materi", { ...m, name: newName });
   }
-
   async moveMateri(id: string, newFolder: string): Promise<void> {
     const m = await this.getOne<MateriFile>("materi", id);
     if (!m) throw new Error("File not found");
     const weekMatch = newFolder.match(/week(\d+)/i);
-    const week = weekMatch ? parseInt(weekMatch[1]) : m.week;
-    await this.putOne("materi", { ...m, folder: newFolder, week });
+    await this.putOne("materi", { ...m, folder: newFolder, week: weekMatch ? parseInt(weekMatch[1]) : m.week });
   }
 
   // ========== EXPORT / IMPORT ==========
@@ -2514,12 +2167,10 @@ class AppDB {
     const materiMeta = (await this.getMateriList()).map(({ blob, ...rest }) => rest);
     return { users, absensi, requests, notifications, appeals, settings: [settings], materi: materiMeta };
   }
-
   async importDatabase(data: Record<string, any[]>): Promise<void> {
-    const stores = ["users", "absensi", "requests", "notifications", "appeals", "materi"];
+    const stores = ["users","absensi","requests","notifications","appeals","materi"];
     for (const store of stores) {
-      const all = await this.getAll<any>(store);
-      for (const item of all) {
+      for (const item of await this.getAll<any>(store)) {
         const key = store === "absensi" ? item.userId : item.id;
         if (key) await this.deleteOne(store, key);
       }
@@ -2530,18 +2181,12 @@ class AppDB {
     if (data.notifications) for (const n of data.notifications) await this.putOne("notifications", n);
     if (data.appeals) for (const a of data.appeals) await this.putOne("appeals", a);
     if (data.settings?.[0]) await this.putOne("settings", data.settings[0]);
-    if (data.materi) {
-      for (const m of data.materi) {
-        await this.putOne("materi", { ...m, blob: undefined });
-      }
-    }
+    if (data.materi) for (const m of data.materi) await this.putOne("materi", { ...m, blob: undefined });
   }
-
   async resetDatabase(): Promise<void> {
-    const stores = ["users", "absensi", "requests", "materi", "settings", "notifications", "appeals", "sessions"];
+    const stores = ["users","absensi","requests","materi","settings","notifications","appeals","sessions"];
     for (const store of stores) {
-      const all = await this.getAll<any>(store);
-      for (const item of all) {
+      for (const item of await this.getAll<any>(store)) {
         const key = store === "settings" ? item.key : store === "absensi" ? item.userId : item.id || item.token;
         if (key) await this.deleteOne(store, key);
       }
@@ -2570,7 +2215,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v4.2: QR scanner DOM race condition + always-render div"
+        git commit -m "feat v5: forgot password, admin settings, CSV export, profile modal, 1x/week scan"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2579,10 +2224,15 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v4.2 SELESAI ===${NC}"
+echo -e "${GREEN}=== FIX v5 SELESAI ===${NC}"
 echo ""
-echo "Perubahan:"
-echo "  • Scanner div SELALU ada di DOM (tidak conditional render)"
-echo "  • Retry 20x (2 detik) sampai element #admin-qr-scanner ditemukan"
-echo "  • Hapus qrContainerRef check yang menyebabkan false negative"
+echo "Fitur baru:"
+echo "  • Login: tombol 'Lupa Password?' → request ganti password ke admin"
+echo "  • Admin: lihat password hash lama vs baru sebelum approve"
+echo "  • Admin: ganti username/password sendiri (icon gear di header)"
+echo "  • Admin: download CSV/JSON log kehadiran (pisah teknik/non-teknik)"
+echo "  • Dashboard: tombol profil (avatar) → modal ubah nama/username/request pw"
+echo "  • Daftar: hapus opsi kelas A/B, cukup teknik/non-teknik/keduanya"
+echo "  • Scan QR: 1x per minggu per kelas, user keduanya harus 2x"
+echo "  • Scan QR: admin pilih kelas (teknik/non-teknik) sebelum scan"
 echo ""
