@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v2 — Button Debug Edition
-# Fixes: visible errors, crypto check, searchParams loop, scan QR errors
+# Absensi App Auto-Fix v3 — QR Scan Camera Fix
+# Fixes: Html5Qrcode DOM timing, secure context check, file upload fallback
 # ============================================================
 set -e
 
@@ -10,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v2 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v3 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -21,19 +21,19 @@ fi
 cd "$PROJECT_ROOT"
 echo -e "${GREEN}Project root: $(pwd)${NC}"
 
-mkdir -p .backup-fix-absensi-v2
-cp tailwind.config.js .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/lib/db.ts .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/lib/auth.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/app/layout.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/app/login/page.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/app/admin/page.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/app/dashboard/page.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/components/IzinForm.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/components/FileExplorer.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/components/MateriExplorer.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/components/QRDisplay.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
-cp src/components/NotificationBell.tsx .backup-fix-absensi-v2/ 2>/dev/null || true
+mkdir -p .backup-fix-absensi-v3
+cp tailwind.config.js .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/lib/db.ts .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/lib/auth.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/app/layout.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/app/login/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/app/admin/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/app/dashboard/page.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/components/IzinForm.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/components/FileExplorer.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/components/MateriExplorer.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/components/QRDisplay.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
+cp src/components/NotificationBell.tsx .backup-fix-absensi-v3/ 2>/dev/null || true
 echo -e "${GREEN}Backup OK${NC}"
 
 mkdir -p "$(dirname 'tailwind.config.js')"
@@ -2437,7 +2437,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v2: button debug, crypto check, scan QR errors, searchParams loop"
+        git commit -m "fix v3: QR scan camera DOM timing, secure context, file upload fallback"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2446,18 +2446,17 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v2 SELESAI ===${NC}"
+echo -e "${GREEN}=== FIX v3 SELESAI ===${NC}"
 echo ""
-echo "Perubahan utama:"
-echo "  • Login: debug console.log + e.stopPropagation() + searchParams read once"
-echo "  • Admin Scan QR: visible error message kalau kamera gagal"
-echo "  • Layout: global crypto.subtle check (muncul warning kalau browser tidak support)"
-echo "  • Semua tombol: explicit type=button + better error catch"
+echo "Perubahan utama di v3:"
+echo "  • QR Scanner: pakai useEffect + useRef (DOM siap dulu baru init)"
+echo "  • QR Scanner: cek isSecureContext (HTTPS/localhost required)"
+echo "  • QR Scanner: cek navigator.mediaDevices support"
+echo "  • QR Scanner: tambah fallback Upload Gambar QR (scan dari file)"
+echo "  • QR Scanner: guard mencegah multiple instance"
 echo ""
-echo "Cara cek masalah:"
-echo "  1. Buka browser → DevTools (F12) → Console"
-echo "  2. Klik tombol yang bermasalah"
-echo "  3. Lihat log [LOGIN], [REGISTER], [SCAN], dll"
-echo ""
-echo "Kalau muncul 'Browser Tidak Didukung' => akses via http://localhost:3000"
+echo "Kalau kamera masih gak bisa:"
+echo "  1. Pastikan akses via http://localhost:3000 (bukan IP)"
+echo "  2. Atau gunakan tombol 'Upload Gambar QR' sebagai alternatif"
+echo "  3. Cek DevTools Console untuk log [SCAN]"
 echo ""
