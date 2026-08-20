@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v4.1 — TypeScript Build Fix
-# Fixes: Html5Qrcode expects string ID, not HTMLDivElement
+# Absensi App Auto-Fix v4.2 — DOM Race Condition Fix
+# Fixes: scanner div always in DOM, retry until element found
 # ============================================================
 set -e
 
@@ -10,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v4.1 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v4.2 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -123,7 +123,6 @@ export default function AdminPanel() {
   const [selectedKelas, setSelectedKelas] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  const qrContainerRef = useRef<HTMLDivElement>(null);
   const fileScannerRef = useRef<HTMLDivElement>(null);
   const scannerInstanceRef = useRef<Html5Qrcode | null>(null);
 
@@ -147,12 +146,19 @@ export default function AdminPanel() {
     let scanner: Html5Qrcode | null = null;
 
     const initScanner = async () => {
-      await new Promise((r) => setTimeout(r, 300));
+      // Retry up to 20 times (2 seconds total) until element exists
+      let attempts = 0;
+      while (!document.getElementById("admin-qr-scanner") && attempts < 20) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (cancelled) return;
+        attempts++;
+      }
       if (cancelled) return;
 
-      if (!qrContainerRef.current) {
+      const el = document.getElementById("admin-qr-scanner");
+      if (!el) {
         setCameraStatus("error");
-        setScanError("QR container tidak ditemukan di DOM.");
+        setScanError("QR container tidak ditemukan di DOM setelah 2 detik.");
         return;
       }
 
@@ -572,33 +578,38 @@ export default function AdminPanel() {
               </div>
 
               <div className="flex flex-col items-center mb-6 space-y-4">
-                {cameraStatus === "scanning" ? (
-                  <div className="w-full max-w-md">
-                    <div id="admin-qr-scanner" className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
-                      <p className="text-white text-sm">Memuat kamera...</p>
-                    </div>
+                <div className="w-full max-w-md">
+                  {/* Scanner div: ALWAYS rendered so Html5Qrcode can find it */}
+                  <div 
+                    id="admin-qr-scanner" 
+                    className={`rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black transition-all ${cameraStatus === "scanning" ? "opacity-100" : "opacity-0 h-0 min-h-0 overflow-hidden border-0"}`}
+                  >
+                    <p className="text-white text-sm">Memuat kamera...</p>
+                  </div>
+                  {cameraStatus === "scanning" && (
                     <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2">
                       <CameraOff className="w-4 h-4" />Stop Kamera
                     </button>
-                  </div>
-                ) : (
-                  <>
-                    <button type="button" onClick={checkAndStartCamera} disabled={cameraStatus === "checking"} className="btn-primary flex items-center gap-2 text-lg px-8 py-4 disabled:opacity-50">
-                      {cameraStatus === "checking" ? (
-                        <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Memeriksa kamera...</>
-                      ) : (
-                        <><Camera className="w-5 h-5" />Aktifkan Kamera & Scan QR</>
-                      )}
-                    </button>
-                    <div className="text-center">
-                      <p className="text-sm text-gray-400 mb-2">— atau —</p>
-                      <label className="btn-secondary flex items-center gap-2 cursor-pointer">
-                        <Upload className="w-4 h-4" />Upload Gambar QR
-                        <input type="file" accept="image/*" className="hidden" onChange={handleFileScan} />
-                      </label>
-                    </div>
-                  </>
-                )}
+                  )}
+                  {cameraStatus !== "scanning" && (
+                    <>
+                      <button type="button" onClick={checkAndStartCamera} disabled={cameraStatus === "checking"} className="btn-primary flex items-center gap-2 text-lg px-8 py-4 disabled:opacity-50">
+                        {cameraStatus === "checking" ? (
+                          <><div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />Memeriksa kamera...</>
+                        ) : (
+                          <><Camera className="w-5 h-5" />Aktifkan Kamera & Scan QR</>
+                        )}
+                      </button>
+                      <div className="text-center mt-3">
+                        <p className="text-sm text-gray-400 mb-2">— atau —</p>
+                        <label className="btn-secondary flex items-center gap-2 cursor-pointer">
+                          <Upload className="w-4 h-4" />Upload Gambar QR
+                          <input type="file" accept="image/*" className="hidden" onChange={handleFileScan} />
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {cameraBanner()}
 
@@ -2559,7 +2570,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v4.1: Html5Qrcode string ID TypeScript build fix"
+        git commit -m "fix v4.2: QR scanner DOM race condition + always-render div"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2568,4 +2579,10 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v4.1 SELESAI ===${NC}"
+echo -e "${GREEN}=== FIX v4.2 SELESAI ===${NC}"
+echo ""
+echo "Perubahan:"
+echo "  • Scanner div SELALU ada di DOM (tidak conditional render)"
+echo "  • Retry 20x (2 detik) sampai element #admin-qr-scanner ditemukan"
+echo "  • Hapus qrContainerRef check yang menyebabkan false negative"
+echo ""
