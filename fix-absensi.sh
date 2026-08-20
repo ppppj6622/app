@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
-# Absensi App Auto-Fix v4 — Camera Permission Pre-Check
-# Fixes: explicit getUserMedia permission request, clear status banners
+# Absensi App Auto-Fix v4.1 — TypeScript Build Fix
+# Fixes: Html5Qrcode expects string ID, not HTMLDivElement
 # ============================================================
 set -e
 
@@ -10,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== Absensi App Auto-Fix v4 ===${NC}"
+echo -e "${GREEN}=== Absensi App Auto-Fix v4.1 ===${NC}"
 
 PROJECT_ROOT="."
 if [ ! -f "$PROJECT_ROOT/package.json" ]; then
@@ -157,7 +157,7 @@ export default function AdminPanel() {
       }
 
       try {
-        scanner = new Html5Qrcode(qrContainerRef.current);
+        scanner = new Html5Qrcode("admin-qr-scanner");
         scannerInstanceRef.current = scanner;
 
         await scanner.start(
@@ -574,7 +574,7 @@ export default function AdminPanel() {
               <div className="flex flex-col items-center mb-6 space-y-4">
                 {cameraStatus === "scanning" ? (
                   <div className="w-full max-w-md">
-                    <div ref={qrContainerRef} className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
+                    <div id="admin-qr-scanner" className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
                       <p className="text-white text-sm">Memuat kamera...</p>
                     </div>
                     <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2">
@@ -2559,7 +2559,7 @@ if [ -d ".git" ]; then
     if git diff --cached --quiet; then
         echo -e "${YELLOW}Tidak ada perubahan untuk di-commit.${NC}"
     else
-        git commit -m "fix v4: camera permission pre-check + explicit getUserMedia"
+        git commit -m "fix v4.1: Html5Qrcode string ID TypeScript build fix"
         echo -e "${GREEN}Commit OK${NC}"
         git push 2>/dev/null && echo -e "${GREEN}Push OK${NC}" || echo -e "${YELLOW}Push gagal, push manual: git push origin $(git branch --show-current)${NC}"
     fi
@@ -2568,15 +2568,4 @@ else
 fi
 
 echo ""
-echo -e "${GREEN}=== FIX v4 SELESAI ===${NC}"
-echo ""
-echo "Perubahan utama di v4:"
-echo "  • Camera: explicit navigator.mediaDevices.getUserMedia() sebelum scanner"
-echo "  • Camera: status banner jelas (insecure/unsupported/denied/notfound/inuse)"
-echo "  • Camera: permission popup akan muncul kalau context aman (HTTPS/localhost)"
-echo "  • Layout: hapus CryptoCheck (fix SSR issue)"
-echo ""
-echo "Kalau kamera masih gak minta permission:"
-echo "  → Pastikan akses via http://localhost:3000 (BUKAN IP 192.168.x.x)"
-echo "  → Atau gunakan tombol 'Upload Gambar QR' sebagai alternatif"
-echo ""
+echo -e "${GREEN}=== FIX v4.1 SELESAI ===${NC}"

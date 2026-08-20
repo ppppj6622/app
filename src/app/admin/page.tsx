@@ -68,7 +68,7 @@ export default function AdminPanel() {
       }
 
       try {
-        scanner = new Html5Qrcode(qrContainerRef.current);
+        scanner = new Html5Qrcode("admin-qr-scanner");
         scannerInstanceRef.current = scanner;
 
         await scanner.start(
@@ -485,7 +485,7 @@ export default function AdminPanel() {
               <div className="flex flex-col items-center mb-6 space-y-4">
                 {cameraStatus === "scanning" ? (
                   <div className="w-full max-w-md">
-                    <div ref={qrContainerRef} className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
+                    <div id="admin-qr-scanner" className="rounded-xl overflow-hidden border-2 border-primary min-h-[300px] flex items-center justify-center bg-black">
                       <p className="text-white text-sm">Memuat kamera...</p>
                     </div>
                     <button type="button" onClick={stopScan} className="w-full mt-2 btn-danger flex items-center justify-center gap-2">
