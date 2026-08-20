@@ -34,7 +34,6 @@ export default function Dashboard() {
   }, [user]);
 
   const loadData = async () => {
-    await db.init();
     if (!user) return;
     try {
       const u = await db.getUserById(user.id);

@@ -46,7 +46,6 @@ export default function FileExplorer() {
   }, []);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await db.init();
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
@@ -62,14 +61,12 @@ export default function FileExplorer() {
   };
 
   const handleDelete = async (id: string) => {
-    await db.init();
     if (!confirm("Yakin hapus file ini?")) return;
     await db.deleteMateri(id);
     await load();
   };
 
   const handleRename = async (id: string) => {
-    await db.init();
     if (!renameValue.trim()) return;
     await db.renameMateri(id, renameValue.trim());
     setRenameId(null);
@@ -78,7 +75,6 @@ export default function FileExplorer() {
   };
 
   const handleMove = async (id: string, folder: string) => {
-    await db.init();
     await db.moveMateri(id, folder);
     setMoveId(null);
     await load();
@@ -105,7 +101,6 @@ export default function FileExplorer() {
   };
 
   const handleExportDB = async () => {
-    await db.init();
     const data = await db.exportDatabase();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);

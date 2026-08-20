@@ -38,7 +38,6 @@ export default function AdminPanel() {
   }, [user]);
 
   const loadAll = async () => {
-    await db.init();
     try {
       const allUsers = await db.getAllUsers();
       const allRequests = await db.getRequests();
